@@ -1,0 +1,982 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "toolcrib",
+  "version": "0.8.0",
+  "description": "Per-category slice of component-manifest.json's \"components\" array (category: Data Display), for on-demand detail without loading the full manifest. See component-manifest.json for themeSystem/zIndexScale/eventBus and cross-category data.",
+  "category": "Data Display",
+  "components": [
+    {
+      "name": "Accordion",
+      "import": "import { Accordion } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for event bus targeting. Auto-generated if omitted."
+        },
+        "items": {
+          "type": "AccordionItemData[]",
+          "required": true,
+          "description": "Array of items to render as accordion panels."
+        },
+        "type": {
+          "type": "'single' | 'multiple'",
+          "default": "'single'",
+          "description": "`'single'` allows only one panel open at a time. `'multiple'` allows any combination."
+        },
+        "defaultValue": {
+          "type": "string",
+          "description": "Value of the initially expanded panel (for `type='single'`)."
+        },
+        "overrides": {
+          "type": "Partial<AccordionSliceState>",
+          "description": "Per-instance overrides for header padding, item gap, variant, and panel animation."
+        }
+      },
+      "constraints": "For a long list of many items, wrap each item's `content` value in `<DeferredContent estimatedHeight={...}>` to defer off-screen ones (each item is content-sized, not flex-fill, so this is safe)",
+      "category": "Data Display",
+      "description": "Data-driven collapsible panel group with animations"
+    },
+    {
+      "name": "Avatar",
+      "import": "import { Avatar } from '#toolcrib'",
+      "props": {
+        "src": {
+          "type": "string",
+          "description": "Image URL. Falls back to `fallback` if omitted, loading, or failing to load."
+        },
+        "alt": {
+          "type": "string",
+          "description": "Accessible alt text for the image."
+        },
+        "fallback": {
+          "type": "ReactNode",
+          "required": true,
+          "description": "Content shown while `src` is missing/loading/erroring — typically initials."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Diameter."
+        },
+        "fallbackDelayMs": {
+          "type": "number",
+          "description": "Delay in milliseconds before the fallback renders while the image is\nstill loading, avoiding a flash of fallback content for a fast-loading\nimage. Omitted by default — Radix's own `AvatarPrimitive.Fallback`\nrenders immediately with no artificial delay unless `delayMs` is\nexplicitly passed (confirmed in `@radix-ui/react-avatar`'s source:\nits `canRender` state starts `true` only when `delayMs === undefined`),\nso defaulting this to a nonzero value here would force every avatar\nwith no `src` — the common initials-only case — to sit blank for that\nlong before showing its fallback, for no benefit."
+        },
+        "overrides": {
+          "type": "Partial<AvatarSliceState>",
+          "description": "Per-instance override for the avatar's shape."
+        }
+      },
+      "category": "Data Display",
+      "description": "User/entity avatar image with automatic initials fallback"
+    },
+    {
+      "name": "Badge",
+      "import": "import { Badge } from '#toolcrib'",
+      "props": {
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour (one of the 4 fixed status colors). Falls back to the nearest `<StyleDomainProvider>`'s if omitted, then a neutral grey. Wins over `variant` if both are set."
+        },
+        "variant": {
+          "type": "'primary' | 'secondary'",
+          "description": "Identity color from the harmony palette (`primary`/`secondary`) — for a branded/labeled badge that isn't a status indicator. Ignored if `subtheme` is set."
+        },
+        "appearance": {
+          "type": "'soft' | 'solid' | 'outline'",
+          "default": "'soft'",
+          "description": "Visual treatment for whichever color `subtheme`/`variant` resolves to. `'outline'` is the hollow style."
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "default": "'md'",
+          "description": "Badge size, controlling padding and font-size."
+        },
+        "icon": {
+          "type": "ReactNode",
+          "description": "Icon rendered before the label text."
+        }
+      },
+      "category": "Data Display",
+      "description": "Small status/label pill with the same four semantic subthemes as `<Toast>`/`<DataTable rowSubtheme>`, plus identity-color `variant`s and `soft`/`solid`/`outline` appearances"
+    },
+    {
+      "name": "BarChart",
+      "import": "import { BarChart } from '#toolcrib'",
+      "props": {
+        "categories": {
+          "type": "string[]",
+          "required": true,
+          "description": "X-axis category labels, one per data position."
+        },
+        "series": {
+          "type": "ChartSeries[]",
+          "required": true,
+          "description": "One or more series, each with one value per `categories` entry. A single series renders ungrouped bars and no legend."
+        },
+        "width": {
+          "type": "number",
+          "default": "480",
+          "description": "SVG width in pixels."
+        },
+        "height": {
+          "type": "number",
+          "default": "280",
+          "description": "SVG height in pixels, including the axis band."
+        },
+        "title": {
+          "type": "string",
+          "default": "'Bar chart'",
+          "description": "Accessible name for the chart, and its visible caption when given."
+        },
+        "legendPosition": {
+          "type": "'bottom' | 'side'",
+          "description": "`'bottom'` (default) wraps the legend below the chart; `'side'` places it beside the chart, stacked vertically."
+        },
+        "overrides": {
+          "type": "Partial<ChartSliceState>",
+          "description": "Per-instance override for the chart's gridline visibility."
+        }
+      },
+      "category": "Data Display",
+      "description": "Grouped vertical bar chart for categorical comparisons"
+    },
+    {
+      "name": "Breadcrumb",
+      "import": "import { Breadcrumb } from '#toolcrib'",
+      "slots": [
+        "Item",
+        "Separator"
+      ],
+      "props": {
+        "separator": {
+          "type": "ReactNode",
+          "default": "`<Breadcrumb.Separator />` (a \"›\" glyph)",
+          "description": "Separator rendered between items."
+        },
+        "overrides": {
+          "type": "Partial<BreadcrumbSliceState>",
+          "description": "Per-instance override for item gap."
+        }
+      },
+      "category": "Data Display",
+      "description": "Breadcrumb trail built on React Aria Components, collapsing middle items into a `<DropdownMenu>` on overflow"
+    },
+    {
+      "name": "Carousel",
+      "import": "import { Carousel } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for event bus targeting. Auto-generated if omitted."
+        },
+        "slides": {
+          "type": "CarouselSlideItem[]",
+          "required": true,
+          "description": "Array of slides to render."
+        },
+        "loop": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Whether the carousel wraps from the last slide back to the first (and\nvice versa) instead of stopping at the ends."
+        },
+        "autoplay": {
+          "type": "{ delayMs: number }",
+          "description": "When provided, automatically advances to the next slide every `delayMs`. Omit for no autoplay."
+        },
+        "onSlideChange": {
+          "type": "(index: number) => void",
+          "description": "Change callback fired whenever the active slide changes, from drag, arrow click, dot click, or autoplay."
+        },
+        "overrides": {
+          "type": "Partial<CarouselSliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for arrow size, dot size/colour, and slide gap."
+        }
+      },
+      "category": "Data Display",
+      "description": "Swipeable slide carousel with drag/loop physics via embla-carousel-react, plus themed nav arrows and dot indicators"
+    },
+    {
+      "name": "DataTable",
+      "import": "import { DataTable } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Identifier included in this instance's `datatable:sorted`/\n`datatable:paginated`/`datatable:row_clicked` event bus payloads, so a\nlistener watching multiple tables can tell them apart. Auto-generated\nif omitted (still included in payloads either way) — unlike\n`Modal`/`Popup`/`Accordion`'s `id`, there's no bus-driven open/close\ncounterpart to target, so this exists purely for event attribution."
+        },
+        "data": {
+          "type": "T[]",
+          "required": true,
+          "description": "Array of data records to display."
+        },
+        "columns": {
+          "type": "Column<T>[]",
+          "required": true,
+          "description": "Column definitions controlling header, cell rendering, and sorting."
+        },
+        "pagination": {
+          "type": "boolean",
+          "default": "true",
+          "description": "Renders a page-at-a-time with Prev/Next controls when true (the\ndefault). Set to false to virtualize across the *entire* sorted\ndataset instead — no pagination footer, no page slicing — the\nbetter fit once a dataset is too large to page through usefully.\n`pageSize`/`pageSizeOptions` are ignored in this mode."
+        },
+        "pageSize": {
+          "type": "number",
+          "default": "10",
+          "description": "Initial number of rows per page."
+        },
+        "pageSizeOptions": {
+          "type": "number[]",
+          "default": "[5, 10, 25, 50, 100]",
+          "description": "Options shown in the page-size dropdown."
+        },
+        "itemHeight": {
+          "type": "number",
+          "default": "44",
+          "description": "Height of each row in pixels (used for virtualization calculations)."
+        },
+        "containerHeight": {
+          "type": "number | 'auto'",
+          "default": "'auto'",
+          "description": "Container height. `'auto'` fills available space. A number sets a fixed pixel height."
+        },
+        "rowKey": {
+          "type": "(record: T, index: number) => string | number",
+          "description": "Custom row key extractor for React reconciliation. Defaults to array index."
+        },
+        "rowSubtheme": {
+          "type": "(record: T, index: number) => SubthemeName | Partial<SubthemeColors> | undefined",
+          "description": "Styles a row. Return either:\n- One of the toolkit's four semantic subtheme names (`'error'` /\n  `'success'` / `'warning'` / `'info'`) — resolved via\n  `theme/subtheme.ts`'s `resolveSubtheme` into the same\n  WCAG-guaranteed colors used by `subtheme` on `Button`/`Progress`/\n  `Toast`. This is the common case: flagging a row (a failed job, a\n  pending invoice) with the toolkit's existing semantic vocabulary\n  instead of one-off colors.\n- A `Partial<SubthemeColors>` slice — `{ background?, border?, color?\n  }` (see `theme/subtheme.ts`) — for a custom row color the four\n  presets don't cover. Only the fields you set are applied; a field\n  left out falls back to that row's normal, unflagged appearance\n  (default zebra background / border / text color) rather than to\n  any preset. `resolveSubtheme(name)` returns this exact shape, so\n  `rowSubtheme={(r) => ({ ...resolveSubtheme('warning'), border:\n  myCustomBorder })}` composes a preset with a one-off override.\n\nEither form is applied to the row's background/border and to every\ncell's text color in it, and disables that row's zebra-striping so\nthe color stays legible. Return `undefined` for a row that shouldn't\nbe styled.\n\n`index` is the row's position within the *current page* (matching\n`rowKey`/`Column.render`'s `index`), not its position in the full\n`data` array — it resets to `0` at the top of every page. When\n`pagination` is false there's only one \"page\", so it's simply this\nrow's absolute index in the sorted dataset."
+        },
+        "onRowClick": {
+          "type": "(record: T, index: number) => void",
+          "description": "Called when a row is clicked. Every row click also emits\n`datatable:row_clicked` on the event bus regardless of whether this is\ngiven, so an AI agent observing the bus can see row interactions even\nin apps that don't wire up their own handler — this prop is for the\napp's own reaction (open a detail view, select the row, etc.). Rows\nonly show a pointer cursor when this is provided, so the visual\naffordance matches what's actually clickable."
+        },
+        "sortKey": {
+          "type": "string | null",
+          "description": "Controlled sort key. Pass a value (a column's `key`, or `null` for\nunsorted) to drive sorting from parent state — e.g. to persist it in\na URL — instead of letting `<DataTable>` manage it internally. Omit\nentirely for the common uncontrolled case; `defaultSortKey` seeds\nthat internal state instead."
+        },
+        "defaultSortKey": {
+          "type": "string | null",
+          "description": "Initial sort key when uncontrolled (`sortKey` omitted)."
+        },
+        "sortDirection": {
+          "type": "'asc' | 'desc'",
+          "default": "'asc'",
+          "description": "Controlled sort direction. Only meaningful alongside `sortKey`."
+        },
+        "defaultSortDirection": {
+          "type": "'asc' | 'desc'",
+          "default": "'asc'",
+          "description": "Initial sort direction when uncontrolled."
+        },
+        "onSortChange": {
+          "type": "(key: string | null, direction: 'asc' | 'desc') => void",
+          "description": "Called whenever sort changes, whether controlled or uncontrolled —\nmirrors `datatable:sorted`'s payload shape as direct props instead\nof a bus subscription. `key` is `null` when the cycle lands back on\nunsorted."
+        },
+        "page": {
+          "type": "number",
+          "description": "Controlled current page (1-indexed). Pass a value to drive paging\nfrom parent state instead of letting `<DataTable>` manage it\ninternally. Omit for the common uncontrolled case; `defaultPage`\nseeds that internal state instead. No effect when `pagination` is\nfalse."
+        },
+        "defaultPage": {
+          "type": "number",
+          "default": "1",
+          "description": "Initial page when uncontrolled (`page` omitted)."
+        },
+        "onPageChange": {
+          "type": "(page: number) => void",
+          "description": "Called whenever the page changes, whether controlled or uncontrolled."
+        },
+        "selectable": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Adds a checkbox selection column and a bulk-action bar. Greenfield —\nthere is no selection model on `<DataTable>` without this."
+        },
+        "selectedKeys": {
+          "type": "string[]",
+          "description": "Controlled set of selected row keys (matching whatever `rowKey`\nresolves to, stringified). Pass to drive selection from parent state\ninstead of letting `<DataTable>` manage it internally. Omit for the\ncommon uncontrolled case; `defaultSelectedKeys` seeds that internal\nstate instead.\n\nSelection persists across pages — a `Set` of keys held regardless of\n`page`, not reset per page — since \"select N of M rows, filtered\nacross pages\" is the realistic case a bulk-action bar exists for.\nThis is correct out of the box only with a real, stable `rowKey`\n(e.g. `record => record.id`); the default index-based fallback key is\nonly unique *within the current dataset order*, so it survives simple\npagination but not a re-sort or a data mutation, the same inherent\nlimitation `rowKey`'s own index-based fallback already has elsewhere."
+        },
+        "defaultSelectedKeys": {
+          "type": "string[]",
+          "description": "Initial selected keys when uncontrolled (`selectedKeys` omitted)."
+        },
+        "onSelectionChange": {
+          "type": "(selectedKeys: string[]) => void",
+          "description": "Called whenever selection changes, whether controlled or uncontrolled."
+        },
+        "renderBulkActions": {
+          "type": "(selectedKeys: string[]) => ReactNode",
+          "description": "Renders the action buttons in the bulk-action `<Toolbar>` that appears\nonce at least one row is selected — the selection-count label is\nalready provided; this renders only the actions themselves (e.g.\n\"Delete\", \"Export\"), receiving the current selection to act on."
+        },
+        "overrides": {
+          "type": "Partial<TableSliceState>",
+          "description": "Per-instance overrides for density, border style, and striping."
+        }
+      },
+      "category": "Data Display",
+      "description": "Virtualized, sortable, paginated data table with sticky headers"
+    },
+    {
+      "name": "EmptyState",
+      "import": "import { EmptyState } from '#toolcrib'",
+      "slots": [
+        "Icon",
+        "Title",
+        "Description",
+        "Action"
+      ],
+      "props": {},
+      "constraints": "Only `<EmptyState.Title>` is expected — Icon/Description/Action are all optional",
+      "category": "Data Display",
+      "description": "Slot-based placeholder for an empty list/search/error state — same compositional pattern as `<Card>`"
+    },
+    {
+      "name": "Filmstrip",
+      "import": "import { Filmstrip } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for event bus targeting. Auto-generated if omitted."
+        },
+        "items": {
+          "type": "FilmstripItem[]",
+          "required": true,
+          "description": "Array of thumbnail definitions to render."
+        },
+        "activeId": {
+          "type": "string",
+          "description": "Controlled active item id. Omit to let `<Filmstrip>` manage its own state internally."
+        },
+        "defaultActiveId": {
+          "type": "string",
+          "default": "items[0]?.id",
+          "description": "Initial active item when uncontrolled."
+        },
+        "onChange": {
+          "type": "(id: string) => void",
+          "description": "Change callback fired whenever the active item changes, controlled or not."
+        },
+        "thumbnailSize": {
+          "type": "string",
+          "default": "'4rem'",
+          "description": "Width/height of each thumbnail slot."
+        },
+        "overrides": {
+          "type": "Partial<TabSliceState>",
+          "description": "Per-instance overrides for the active-item indicator. Reuses\n`<TabStrip>`'s own registered `ThemeSlice` (its active-indicator\ntokens — `variant`/`size` are ignored here) rather than a second,\nparallel slice, so a filmstrip's active-thumbnail ring always matches\nthe app's tab styling."
+        }
+      },
+      "category": "Data Display",
+      "description": "Horizontally-scrollable thumbnail strip with an active-item indicator, reusing TabStrip's own overflow scroll detection"
+    },
+    {
+      "name": "Gallery",
+      "import": "import { Gallery } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for event bus targeting (forwarded to the internal `<Viewer>`). Auto-generated if omitted."
+        },
+        "items": {
+          "type": "GalleryItem[]",
+          "required": true,
+          "description": "Array of items to render."
+        },
+        "columns": {
+          "type": "number | 'auto-fit' | 'auto-fill'",
+          "default": "'auto-fit'",
+          "description": "Number of columns, or `'auto-fit'`/`'auto-fill'` for responsive\nbehaviour — passed straight through to `<Grid>`'s own prop."
+        },
+        "onItemClick": {
+          "type": "(item: GalleryItem, index: number) => void",
+          "description": "Custom click handler, called instead of the default \"open in\n`<Viewer>`\" behaviour. Use this to host `<ViewerContent>` in a\n`<Drawer>`/`<Popup>`/anywhere else of your own choosing — `<Gallery>`\nitself doesn't need to know or care which shell you pick."
+        },
+        "overrides": {
+          "type": "Partial<GallerySliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for thumbnail aspect ratio."
+        }
+      },
+      "category": "Data Display",
+      "description": "Thumbnail grid with lazy-rendered items, opening a fullscreen Viewer by default"
+    },
+    {
+      "name": "Heatmap",
+      "import": "import { Heatmap } from '#toolcrib'",
+      "props": {
+        "columns": {
+          "type": "string[]",
+          "required": true,
+          "description": "Column labels, x-axis."
+        },
+        "rows": {
+          "type": "string[]",
+          "required": true,
+          "description": "Row labels, y-axis."
+        },
+        "values": {
+          "type": "number[][]",
+          "required": true,
+          "description": "Cell values, indexed `[rowIndex][columnIndex]`, same order as `rows`/`columns`."
+        },
+        "width": {
+          "type": "number",
+          "default": "480",
+          "description": "SVG width in pixels."
+        },
+        "height": {
+          "type": "number",
+          "default": "280",
+          "description": "SVG height in pixels, including the axis band."
+        },
+        "title": {
+          "type": "string",
+          "default": "'Heatmap'",
+          "description": "Accessible name for the chart."
+        },
+        "formatValue": {
+          "type": "(value: number) => string",
+          "default": "String(value)",
+          "description": "Formats a cell's value for its tooltip/accessible label."
+        }
+      },
+      "category": "Data Display",
+      "description": "Row/column magnitude grid with a theme-tracking sequential ramp"
+    },
+    {
+      "name": "LineChart",
+      "import": "import { LineChart } from '#toolcrib'",
+      "props": {
+        "categories": {
+          "type": "string[]",
+          "required": true,
+          "description": "X-axis category labels, one per data position."
+        },
+        "series": {
+          "type": "ChartSeries[]",
+          "required": true,
+          "description": "One or more series, each with one value per `categories` entry. A single series renders one line and no legend."
+        },
+        "width": {
+          "type": "number",
+          "default": "480",
+          "description": "SVG width in pixels."
+        },
+        "height": {
+          "type": "number",
+          "default": "280",
+          "description": "SVG height in pixels, including the axis band."
+        },
+        "title": {
+          "type": "string",
+          "default": "'Line chart'",
+          "description": "Accessible name for the chart, and its visible caption when given."
+        },
+        "variant": {
+          "type": "'line' | 'area'",
+          "description": "`'line'` (default) draws unfilled lines. `'area'` fills a soft wash (~10% opacity) under each line's band-edge; with 2+ series the bands stack (cumulative), matching the toolkit's dataviz method for part-to-whole-over-time."
+        },
+        "legendPosition": {
+          "type": "'bottom' | 'side'",
+          "description": "`'bottom'` (default) wraps the legend below the chart; `'side'` places it beside the chart, stacked vertically."
+        },
+        "overrides": {
+          "type": "Partial<ChartSliceState>",
+          "description": "Per-instance override for the chart's gridline visibility."
+        }
+      },
+      "category": "Data Display",
+      "description": "Multi-series line chart with a shared hover crosshair; `variant=\"area\"` renders a stacked, filled area chart"
+    },
+    {
+      "name": "PieChart",
+      "import": "import { PieChart } from '#toolcrib'",
+      "props": {
+        "data": {
+          "type": "PieChartDatum[]",
+          "required": true,
+          "description": "Slices to render. More than 8 are folded: the largest 7 keep their own slice, the rest merge into \"Other\" — a chart never generates a 9th categorical hue (see `chartColors.ts`)."
+        },
+        "width": {
+          "type": "number",
+          "default": "320",
+          "description": "SVG width and height in pixels — pie charts render square, so only the smaller of the two is used."
+        },
+        "height": {
+          "type": "number",
+          "default": "320"
+        },
+        "innerRadius": {
+          "type": "number",
+          "description": "Fraction of the outer radius left as a hole, for a donut. `0` (default) renders a full pie."
+        },
+        "title": {
+          "type": "string",
+          "default": "'Pie chart'",
+          "description": "Accessible name for the chart."
+        },
+        "legendPosition": {
+          "type": "'bottom' | 'side'",
+          "description": "`'bottom'` (default) wraps the legend below the ring; `'side'` places it beside the ring, stacked vertically — the more common layout for a donut."
+        }
+      },
+      "category": "Data Display",
+      "description": "Part-to-whole pie or donut chart"
+    },
+    {
+      "name": "Progress",
+      "import": "import { Progress } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier included in emitted `progress:changed` events."
+        },
+        "value": {
+          "type": "number",
+          "required": true,
+          "description": "Current progress value, between 0 and `max`."
+        },
+        "max": {
+          "type": "number",
+          "default": "100",
+          "description": "Value representing 100% completion."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Bar thickness."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour. Falls back to the nearest `<StyleDomainProvider>`'s if omitted."
+        },
+        "overrides": {
+          "type": "Partial<ProgressSliceState>",
+          "description": "Per-instance override for the track's corner shape."
+        }
+      },
+      "category": "Data Display",
+      "description": "Determinate progress bar"
+    },
+    {
+      "name": "ScaleLegend",
+      "import": "import { ScaleLegend } from '#toolcrib'",
+      "props": {
+        "min": {
+          "type": "number",
+          "required": true,
+          "description": "Value at the light end of the ramp."
+        },
+        "max": {
+          "type": "number",
+          "required": true,
+          "description": "Value at the dark end of the ramp."
+        },
+        "formatValue": {
+          "type": "(value: number) => string",
+          "default": "String",
+          "description": "Formats the min/max labels."
+        },
+        "width": {
+          "type": "number",
+          "default": "160",
+          "description": "Gradient bar width in pixels."
+        }
+      },
+      "category": "Data Display",
+      "description": "Gradient legend for a sequential (magnitude) color-encoded chart"
+    },
+    {
+      "name": "Skeleton",
+      "import": "import { Skeleton } from '#toolcrib'",
+      "props": {
+        "shape": {
+          "type": "'text' | 'circle' | 'rect'",
+          "default": "'text'",
+          "description": "Shape primitive.\n- `'text'` — A single line of text, rounded, `1em`-ish tall.\n- `'circle'` — A circle (avatar-shaped placeholder).\n- `'rect'` — A rectangle with mild corner rounding (image/card placeholder)."
+        },
+        "width": {
+          "type": "string",
+          "default": "'100%' for `'text'`/`'rect'`, matches `height` for `'circle'`",
+          "description": "Width as a CSS value."
+        },
+        "height": {
+          "type": "string",
+          "default": "'1rem' for `'text'`, '100%' for `'rect'`, matches `width` for `'circle'`",
+          "description": "Height as a CSS value."
+        }
+      },
+      "category": "Data Display",
+      "description": "Shimmering loading placeholder in text/circle/rect shapes"
+    },
+    {
+      "name": "Sparkline",
+      "import": "import { Sparkline } from '#toolcrib'",
+      "props": {
+        "values": {
+          "type": "number[]",
+          "required": true,
+          "description": "Sequential values forming the trend line, oldest first."
+        },
+        "width": {
+          "type": "number",
+          "default": "80",
+          "description": "SVG width in pixels."
+        },
+        "height": {
+          "type": "number",
+          "default": "24",
+          "description": "SVG height in pixels."
+        },
+        "title": {
+          "type": "string",
+          "default": "'Trend sparkline'",
+          "description": "Accessible name."
+        }
+      },
+      "category": "Data Display",
+      "description": "Minimal inline trend line for a stat tile"
+    },
+    {
+      "name": "Spinner",
+      "import": "import { Spinner } from '#toolcrib'",
+      "props": {
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Spinner diameter."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour. Falls back to the nearest `<StyleDomainProvider>`'s if omitted, then the theme's primary colour."
+        }
+      },
+      "category": "Data Display",
+      "description": "Indeterminate circular loading indicator, same subtheme colouring as `<Progress>`"
+    },
+    {
+      "name": "Stepper",
+      "import": "import { Stepper } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for `stepper:changed` event bus payloads. Auto-generated if omitted."
+        },
+        "steps": {
+          "type": "StepperStepData[]",
+          "required": true,
+          "description": "Steps to render, in order."
+        },
+        "activeIndex": {
+          "type": "number",
+          "description": "Controlled active step index."
+        },
+        "defaultActiveIndex": {
+          "type": "number",
+          "default": "0",
+          "description": "Initial active step index when uncontrolled."
+        },
+        "onActiveIndexChange": {
+          "type": "(index: number) => void",
+          "description": "Called whenever the active step changes, whether controlled or uncontrolled."
+        },
+        "overrides": {
+          "type": "Partial<StepperSliceState>",
+          "description": "Per-instance override for indicator/label size."
+        }
+      },
+      "constraints": "Forward navigation past a step with `formId` set is blocked until that step's `<Form>` reports `isValid: true`",
+      "category": "Data Display",
+      "description": "Linear step wizard built on the same Radix Tabs primitive as `<TabStrip>`, with per-step Form validation gating"
+    },
+    {
+      "name": "TabStrip",
+      "import": "import { TabStrip } from '#toolcrib'",
+      "slots": [
+        "Tab",
+        "Panel"
+      ],
+      "slotProps": {
+        "Panel": {
+          "groupId": {
+            "type": "string",
+            "required": true,
+            "description": "The `id` of the `<TabStrip>` group this panel belongs to — must match\nthat TabStrip's own `id` exactly. This is the *only* link between them;\nthey don't need to share a DOM ancestor. Rendering this panel without\nits matching TabStrip mounted anywhere is valid — it just never\nreceives a `tab:changed` event, so it stays hidden."
+          },
+          "value": {
+            "type": "string",
+            "required": true,
+            "description": "The tab id (matching one of that TabStrip's `items`) this panel renders for."
+          }
+        }
+      },
+      "props": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Identifies this tab group for event bus coordination — every\n`<TabStrip.Panel groupId={...}>` that should respond to this control\nmust use the exact same string. Required (not auto-generated) because,\nunlike a Modal's `id`, it has to be a stable value the panels — wherever\nthey're rendered — can reference independently."
+        },
+        "items": {
+          "type": "TabItem[]",
+          "required": true,
+          "description": "Array of tab definitions to render."
+        },
+        "activeId": {
+          "type": "string",
+          "description": "Controlled active tab id. Omit to let `<TabStrip>` manage its own\nstate internally — the common case, since panels never need it passed\ndown (they get it from the bus)."
+        },
+        "defaultActiveId": {
+          "type": "string",
+          "default": "items[0]?.id",
+          "description": "Initial active tab when uncontrolled."
+        },
+        "onChange": {
+          "type": "(id: string) => void",
+          "description": "Change callback for controlled usage (e.g. syncing with a router).\nCross-tree panels should not rely on this — they subscribe to\n`tab:changed` via `useAIEvent` instead, which fires regardless of\nwhether this component is controlled or self-managed."
+        },
+        "overrides": {
+          "type": "Partial<TabSliceState>",
+          "description": "Per-instance overrides for variant, size, active-tab colour, and panel transition."
+        }
+      },
+      "category": "Data Display",
+      "description": "Scrollable tab header with filmstrip overflow. Use TabStrip.Panel for content"
+    },
+    {
+      "name": "Tree",
+      "import": "import { Tree } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for `tree:expanded`/`tree:collapsed` event bus payloads. Auto-generated if omitted."
+        },
+        "items": {
+          "type": "TreeItemData[]",
+          "required": true,
+          "description": "Root-level nodes."
+        },
+        "expandedIds": {
+          "type": "string[]",
+          "description": "Controlled set of expanded node ids. Pass to drive expansion from parent state instead of managing it internally."
+        },
+        "defaultExpandedIds": {
+          "type": "string[]",
+          "description": "Initial expanded ids when uncontrolled (`expandedIds` omitted)."
+        },
+        "onExpandedChange": {
+          "type": "(expandedIds: string[]) => void",
+          "description": "Called whenever a node expands or collapses, whether controlled or uncontrolled."
+        },
+        "selectedId": {
+          "type": "string",
+          "description": "Controlled selected node id. Pass to drive selection from parent state instead of managing it internally."
+        },
+        "defaultSelectedId": {
+          "type": "string",
+          "description": "Initial selected id when uncontrolled (`selectedId` omitted)."
+        },
+        "onSelectChange": {
+          "type": "(id: string | undefined) => void",
+          "description": "Called whenever selection changes, whether controlled or uncontrolled."
+        },
+        "overrides": {
+          "type": "Partial<TreeSliceState>",
+          "description": "Per-instance overrides for indent and row spacing."
+        }
+      },
+      "constraints": "Rendered as a flat, single-level DOM list with `aria-level`/`aria-setsize`/`aria-posinset` conveying hierarchy (not nested `role=\"group\"` elements) — a WAI-ARIA-APG-accepted alternative that keeps each visible row independently wrappable in `<DeferredContent>` for large trees",
+      "category": "Data Display",
+      "description": "Data-driven tree view with expand/collapse, single selection, and full WAI-ARIA Treeview keyboard navigation"
+    }
+  ],
+  "$defs": {
+    "AccordionItemData": {
+      "value": {
+        "type": "string",
+        "required": true,
+        "description": "Unique string key identifying this item (used for expand/collapse tracking)."
+      },
+      "title": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Content rendered in the clickable header trigger."
+      },
+      "content": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Content rendered in the collapsible body panel."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, the item cannot be expanded or collapsed."
+      }
+    },
+    "CarouselSlideItem": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique identifier for this slide."
+      },
+      "content": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Slide content — any renderable element (an image, a card, arbitrary markup)."
+      }
+    },
+    "ChartSeries": {
+      "label": {
+        "type": "string",
+        "required": true,
+        "description": "Series identity — the legend swatch label and tooltip row label."
+      },
+      "values": {
+        "type": "number[]",
+        "required": true,
+        "description": "One value per entry in the chart's `categories` array, same order."
+      }
+    },
+    "PieChartDatum": {
+      "label": {
+        "type": "string",
+        "required": true
+      },
+      "value": {
+        "type": "number",
+        "required": true
+      }
+    },
+    "Column": {
+      "key": {
+        "type": "(keyof T & string) | (string & {})",
+        "required": true,
+        "description": "Property key on the data record to read the cell value from, and\nthis column's identifier for sorting/React-key purposes. Typed\nagainst `T` — with a plain-string fallback preserved so this isn't a\nbreaking change for existing callers — so an editor/AI agent gets\nreal autocomplete instead of guessing a property name. Still\nrequired when `accessorFn` is given, as this column's stable id;\npick any string in that case, since the value itself comes from\n`accessorFn` instead."
+      },
+      "accessorFn": {
+        "type": "(record: T) => unknown",
+        "description": "Computed cell value for a column that isn't a direct property read\n(a concatenation, a derived/formatted field). Receives the full\nrecord and takes precedence over `record[key]` when given — this\ncolumn also participates in sorting through it."
+      },
+      "title": {
+        "type": "string",
+        "required": true,
+        "description": "Header text for this column."
+      },
+      "render": {
+        "type": "(context: CellContext<T>) => ReactNode",
+        "description": "Custom cell renderer. Receives this cell's value/row/index as a single object."
+      },
+      "sortable": {
+        "type": "boolean",
+        "default": "false",
+        "description": "If true, clicking this column header toggles sorting."
+      },
+      "width": {
+        "type": "string | number",
+        "description": "Column width as CSS value (e.g. `'12rem'`) or number (px)."
+      }
+    },
+    "FilmstripItem": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique identifier for this item — used in `activeId` and `onChange`."
+      },
+      "content": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Thumbnail content rendered in the strip, e.g. an `<img>`."
+      },
+      "label": {
+        "type": "string",
+        "description": "Accessible label for this item, e.g. `\"Photo 3 of 12\"`."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, the item cannot be selected."
+      }
+    },
+    "GalleryItem": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique identifier for this item."
+      },
+      "thumbnailSrc": {
+        "type": "string",
+        "required": true,
+        "description": "Thumbnail image source shown in the grid."
+      },
+      "fullSrc": {
+        "type": "string",
+        "required": true,
+        "description": "Full-resolution image source opened in the `<Viewer>` (or passed to `onItemClick`)."
+      },
+      "alt": {
+        "type": "string",
+        "description": "Alt text, used for both the thumbnail and the full-resolution image."
+      },
+      "caption": {
+        "type": "ReactNode",
+        "description": "Optional caption shown in the `<Viewer>` for this item."
+      }
+    },
+    "StepperStepData": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique key for this step."
+      },
+      "label": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Label rendered next to this step's number/checkmark indicator."
+      },
+      "content": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Content rendered for this step."
+      },
+      "formId": {
+        "type": "string",
+        "description": "If given, forward navigation past this step is blocked until a\n`<Form id={formId}>` somewhere in `content` reports `isValid: true`\nover the event bus (`form:validated`). Omit for a step with no form to\ngate on (e.g. a pure informational/review step)."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, this step can never be navigated to directly (still counts toward the linear sequence)."
+      }
+    },
+    "TabItem": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique identifier for this tab — used in `activeId` and `onChange`."
+      },
+      "label": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Label content rendered in the tab header."
+      },
+      "icon": {
+        "type": "ReactNode",
+        "description": "Optional icon rendered before the label."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, the tab cannot be selected."
+      }
+    },
+    "TreeItemData": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Unique string key identifying this node."
+      },
+      "label": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Content rendered for this node's row."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, this node cannot be expanded, collapsed, or selected."
+      }
+    }
+  }
+}

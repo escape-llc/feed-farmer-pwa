@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2dd36f"/>
+      <stop offset="100%" stop-color="#1a6b3c"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#111318"/>
+  <!-- Wheat stalk -->
+  <path d="M32 52V20" stroke="url(#g)" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Wheat kernels (left) -->
+  <ellipse cx="28" cy="22" rx="3" ry="5" fill="#2dd36f" transform="rotate(-20 28 22)" opacity="0.9"/>
+  <ellipse cx="27" cy="30" rx="2.5" ry="4.5" fill="#2dd36f" transform="rotate(-25 27 30)" opacity="0.75"/>
+  <ellipse cx="28" cy="37" rx="2" ry="4" fill="#2dd36f" transform="rotate(-15 28 37)" opacity="0.6"/>
+  <!-- Wheat kernels (right) -->
+  <ellipse cx="36" cy="22" rx="3" ry="5" fill="#2dd36f" transform="rotate(20 36 22)" opacity="0.9"/>
+  <ellipse cx="37" cy="30" rx="2.5" ry="4.5" fill="#2dd36f" transform="rotate(25 37 30)" opacity="0.75"/>
+  <ellipse cx="36" cy="37" rx="2" ry="4" fill="#2dd36f" transform="rotate(15 36 37)" opacity="0.6"/>
+  <!-- Top kernel -->
+  <ellipse cx="32" cy="17" rx="2.5" ry="4.5" fill="#2dd36f" opacity="1"/>
+  <!-- RSS waves -->
+  <circle cx="32" cy="14" r="2" fill="none" stroke="#2dd36f" stroke-width="1" opacity="0.4"/>
+  <circle cx="32" cy="14" r="5" fill="none" stroke="#2dd36f" stroke-width="0.8" opacity="0.25"/>
+</svg>
