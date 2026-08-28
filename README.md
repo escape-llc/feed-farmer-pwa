@@ -1,16 +1,40 @@
-# React + Vite
+# Feed Farmer 🌾
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+An RSS/Atom feed reader PWA — fully client-side, offline-capable, no backend of any kind. Built as a real-world toolcrib sample app: not a component showcase, an actual small product built with the toolkit.
 
-Currently, two official plugins are available:
+## What it does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Subscribe to RSS/Atom feeds, organized into folders by category
+- Read articles in an immersive reader (sanitized feed content, or the original page)
+- Star articles, track read/unread, search across everything, jump anywhere via a command palette
+- Works offline once feeds have been fetched (IndexedDB via Dexie + a PWA service worker)
 
-## React Compiler
+## Toolcrib features this demonstrates
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Zod-driven forms** — `AddFeedModal` validates its URL field via `<Form schema={...}>`/`<FormField>`/`<Input>`/`<SubmitButton>`, no manual `useState`/`onChange` wiring.
+- **Event bus (`aiBus`)** — a successful add fires `aiBus.showToast(...)` and `aiBus.closeModal(...)`; `CommandPalette` items drive navigation and actions the same way `Modal`/`Popup` do internally.
+- **`Tree`** — feeds grouped into category folders in the sidebar, with controlled expand state (see `FeedSidebar.tsx`'s own comment on why `defaultExpandedIds` alone doesn't work for folders that don't exist yet at first mount).
+- **`CommandPalette`** — Cmd/Ctrl+K to jump to any feed or run an action.
+- **`Combobox`** — live article search in the header.
+- **`ThemeEditor`** — the toolkit's real-time HSV theme editor, hosted in a `Popup`, live-editing the app's own theme.
+- **`Skeleton`** — loading placeholders while feeds are being fetched, instead of a blank pane.
+- **`UIGroup`** — the header's action buttons (Add Feed / Refresh / Theme / Reset) merge into one visually cohesive segmented control.
+- **`Tooltip`** — every icon-only button carries both a tooltip and an `aria-label`.
+- Full theme customization (`main.tsx`'s HSV `initialParameters`) and the responsive `marginMode` breakpoint framework.
 
-## Expanding the Oxlint configuration
+## Running it
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run build       # production build + service worker
+npm run test:e2e    # Playwright suite (see note below)
+```
+
+## A note on network dependencies
+
+This app fetches feed XML directly from the browser, which means it needs a CORS proxy (see `src/store.ts`) — most real-world feeds don't send CORS headers, and there's no backend here to make that request server-side instead. `fetchAndParseFeed` rotates through several public proxies with an 8-second per-attempt timeout, since any single one can fail *or simply hang* (confirmed directly while building this).
+
+The "Original" view in the reader (an iframe of the actual source page) doesn't work for every site — many sites (BBC, The Verge, both default feeds here) block being framed via their own `frame-ancestors` CSP directive, which is enforced by the browser regardless of anything this app does. There's no client-side workaround; the reader falls back to an "open in a new tab" hint after a few seconds if nothing's rendered.
+
+Because of both of the above, `e2e/` deliberately doesn't test live feed-fetch success — it covers UI behavior that doesn't depend on a real network round-trip.

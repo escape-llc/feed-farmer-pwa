@@ -1,6 +1,10 @@
-import Dexie from 'dexie';
+import Dexie, { type EntityTable } from 'dexie';
+import type { FeedRecord, ArticleRecord } from './types';
 
-const db = new Dexie('FeedFarmerDB');
+const db = new Dexie('FeedFarmerDB') as Dexie & {
+  feeds: EntityTable<FeedRecord, 'id'>;
+  articles: EntityTable<ArticleRecord, 'id'>;
+};
 
 db.version(1).stores({
   feeds: '++id, url, title, lastFetched',

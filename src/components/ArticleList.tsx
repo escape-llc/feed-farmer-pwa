@@ -1,6 +1,18 @@
-import { Button, Badge } from '#toolcrib';
+import { Button, EmptyState, Skeleton, Tooltip } from '#toolcrib';
 import useFeedStore from '../store';
 import { formatDistanceToNow } from 'date-fns';
+
+function ArticleRowSkeleton() {
+  return (
+    <div className="article-row" aria-hidden="true">
+      <div className="article-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+        <Skeleton shape="text" width="55%" height="0.875rem" />
+        <Skeleton shape="text" width="90%" height="0.75rem" />
+        <Skeleton shape="text" width="30%" height="0.6875rem" />
+      </div>
+    </div>
+  );
+}
 
 export default function ArticleList() {
   const { feeds, articles, selectedFeedId, openReader, refreshFeed, toggleStar, isLoading } =
@@ -12,7 +24,9 @@ export default function ArticleList() {
   if (!feed) {
     return (
       <div className="article-list" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: 'var(--ai-text-secondary)' }}>Select a feed from the sidebar</p>
+        <EmptyState>
+          <EmptyState.Title>Select a feed from the sidebar</EmptyState.Title>
+        </EmptyState>
       </div>
     );
   }
@@ -32,10 +46,16 @@ export default function ArticleList() {
         </Button>
       </div>
 
-      {feedArticles.length === 0 ? (
-        <p style={{ color: 'var(--ai-text-secondary)', fontSize: '0.875rem' }}>
-          No articles in this feed yet.
-        </p>
+      {isLoading && feedArticles.length === 0 ? (
+        <>
+          <ArticleRowSkeleton />
+          <ArticleRowSkeleton />
+          <ArticleRowSkeleton />
+        </>
+      ) : feedArticles.length === 0 ? (
+        <EmptyState>
+          <EmptyState.Title>No articles in this feed yet.</EmptyState.Title>
+        </EmptyState>
       ) : (
         feedArticles.map((article) => (
           <div
@@ -61,16 +81,18 @@ export default function ArticleList() {
                 </span>
               </div>
             </div>
-            <button
-              className={`star-button ${article.isStarred ? 'starred' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleStar(article.id);
-              }}
-              title={article.isStarred ? 'Unstar' : 'Star'}
-            >
-              {article.isStarred ? '⭐' : '☆'}
-            </button>
+            <Tooltip content={article.isStarred ? 'Unstar' : 'Star'}>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={article.isStarred ? '⭐' : '☆'}
+                aria-label={article.isStarred ? 'Unstar' : 'Star'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleStar(article.id);
+                }}
+              />
+            </Tooltip>
           </div>
         ))
       )}

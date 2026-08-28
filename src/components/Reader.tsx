@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { Drawer, Button, ToggleGroup } from '#toolcrib';
+import { Drawer, Button, ToggleGroup, Badge, Tooltip } from '#toolcrib';
 import DOMPurify from 'dompurify';
 import { format } from 'date-fns';
 import useFeedStore from '../store';
@@ -7,7 +7,7 @@ import useFeedStore from '../store';
 /** Consider RSS content "substantial" if it has this many chars of actual text. */
 const CONTENT_THRESHOLD = 300;
 
-function stripHtml(html) {
+function stripHtml(html: string) {
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || '';
@@ -17,7 +17,8 @@ export default function Reader() {
   const { selectedArticle, readerOpen, closeReader, toggleStar, feeds } = useFeedStore();
   const scrollRef = useRef(null);
   const [scrollProgress, setScrollProgress] = useState(0);
-  const [viewMode, setViewMode] = useState('auto'); // 'feed' | 'original' | 'auto'
+  const [viewMode, setViewMode] = useState<'feed' | 'original' | 'auto'>('auto');
+  const [showEmbedHint, setShowEmbedHint] = useState(false);
 
   const feed = selectedArticle ? feeds.find((f) => f.id === selectedArticle.feedId) : null;
 
@@ -42,6 +43,21 @@ export default function Reader() {
     setScrollProgress(0);
     setViewMode('auto');
   }, [selectedArticle]);
+
+  // Many sites block being framed at all (X-Frame-Options / CSP
+  // `frame-ancestors`) -- confirmed for real against theverge.com, one of
+  // the default feeds. There's no reliable way to detect this from here:
+  // a blocked frame's `load` event still fires (confirmed empirically,
+  // not assumed), so it can't be told apart from a real successful load.
+  // Instead of pretending we can detect it, always surface the "open in a
+  // new tab" escape hatch after a short delay if the iframe is still the
+  // active view.
+  useEffect(() => {
+    setShowEmbedHint(false);
+    if (effectiveMode !== 'original' || !selectedArticle?.link) return;
+    const timer = setTimeout(() => setShowEmbedHint(true), 2500);
+    return () => clearTimeout(timer);
+  }, [effectiveMode, selectedArticle]);
 
   if (!selectedArticle) return null;
 
@@ -83,7 +99,7 @@ export default function Reader() {
             <ToggleGroup
               type="single"
               value={effectiveMode}
-              onChange={(val) => val && setViewMode(val)}
+              onChange={(val) => typeof val === 'string' && val && setViewMode(val as 'feed' | 'original')}
               options={[
                 { value: 'feed', label: '📄 Feed' },
                 { value: 'original', label: '🌐 Original' },
@@ -91,19 +107,25 @@ export default function Reader() {
               size="sm"
             />
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={selectedArticle.isStarred ? '⭐' : '☆'}
-            onClick={() => toggleStar(selectedArticle.id)}
-          />
-          {selectedArticle.link && (
+          <Tooltip content={selectedArticle.isStarred ? 'Unstar' : 'Star'}>
             <Button
               variant="ghost"
               size="sm"
-              icon="↗"
-              onClick={() => window.open(selectedArticle.link, '_blank', 'noopener')}
+              icon={selectedArticle.isStarred ? '⭐' : '☆'}
+              aria-label={selectedArticle.isStarred ? 'Unstar' : 'Star'}
+              onClick={() => toggleStar(selectedArticle.id)}
             />
+          </Tooltip>
+          {selectedArticle.link && (
+            <Tooltip content="Open in a new tab">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="↗"
+                aria-label="Open in a new tab"
+                onClick={() => window.open(selectedArticle.link, '_blank', 'noopener')}
+              />
+            </Tooltip>
           )}
         </div>
       </div>
@@ -146,13 +168,30 @@ export default function Reader() {
             )}
           </div>
           {selectedArticle.link ? (
-            <iframe
-              className="reader-iframe"
-              src={selectedArticle.link}
-              title={selectedArticle.title}
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-              referrerPolicy="no-referrer"
-            />
+            <>
+              {showEmbedHint && (
+                <div className="reader-embed-hint">
+                  <Badge subtheme="warning" appearance="soft" size="sm">
+                    Nothing showing?
+                  </Badge>
+                  <span>Some sites block being embedded here.</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => window.open(selectedArticle.link, '_blank', 'noopener')}
+                  >
+                    Open in a new tab ↗
+                  </Button>
+                </div>
+              )}
+              <iframe
+                className="reader-iframe"
+                src={selectedArticle.link}
+                title={selectedArticle.title}
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                referrerPolicy="no-referrer"
+              />
+            </>
           ) : (
             <div style={{ padding: '2rem', color: 'var(--ai-text-secondary)', textAlign: 'center' }}>
               No link available for this article.

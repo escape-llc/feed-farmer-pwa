@@ -2,24 +2,89 @@ import { create } from 'zustand';
 import { parseFeed } from './feedParser';
 import db from './db';
 import DEFAULT_FEEDS from './defaultFeeds';
+import type { InsertType } from 'dexie';
+import type { FeedRecord, ArticleRecord } from './types';
 
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+/**
+ * Free CORS proxies are unreliable individually (10-20% request failure
+ * rate is typical) — rotating through several with fallback is the
+ * standard pattern for a client-only feed reader, not a single hardcoded
+ * one. Each entry builds its own proxied URL, since response shape/query
+ * param naming differs per service (not just the base host).
+ */
+const CORS_PROXIES: ((url: string) => string)[] = [
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://proxy.cors.sh/${url}`,
+];
 
 /** Guard against React StrictMode double-mounting seeding default feeds twice. */
 let _seeding = false;
 
+/** How long to wait on one proxy before moving to the next — confirmed for
+ * real (via network logging during this feature's own verification) that
+ * a free proxy can simply hang with no response and no error, which would
+ * otherwise block the whole rotation forever despite having fallbacks. */
+const PROXY_TIMEOUT_MS = 8000;
+
 /**
- * Fetch raw XML through the CORS proxy and parse with our browser-native parser.
+ * Fetch raw XML through the CORS proxy rotation and parse with our
+ * browser-native parser — tries each proxy in turn, only throwing once
+ * every one has failed, so a single proxy outage/rate-limit doesn't take
+ * down feed fetching entirely. Each attempt is bounded by
+ * PROXY_TIMEOUT_MS so a hung (not just a failed) proxy can't block the
+ * rotation either.
  */
-async function fetchAndParseFeed(url) {
-  const proxiedUrl = CORS_PROXY + encodeURIComponent(url);
-  const res = await fetch(proxiedUrl);
-  if (!res.ok) throw new Error(`Failed to fetch feed: ${res.status}`);
-  const xml = await res.text();
-  return parseFeed(xml);
+async function fetchAndParseFeed(url: string) {
+  let lastError: Error = new Error('No proxies configured');
+  for (const buildProxiedUrl of CORS_PROXIES) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+    try {
+      const res = await fetch(buildProxiedUrl(url), { signal: controller.signal });
+      if (!res.ok) throw new Error(`Failed to fetch feed: ${res.status}`);
+      const xml = await res.text();
+      return parseFeed(xml);
+    } catch (err) {
+      lastError = (err as Error).name === 'AbortError' ? new Error('Proxy timed out') : (err as Error);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError;
 }
 
-const useFeedStore = create((set, get) => ({
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+interface FeedStore {
+  feeds: FeedRecord[];
+  articles: ArticleRecord[];
+  selectedFeedId: number | null;
+  selectedArticle: ArticleRecord | null;
+  readerOpen: boolean;
+  isLoading: boolean;
+  error: string | null;
+  /** Map of feedUrl → error message for feeds that failed to load. */
+  feedErrors: Record<string, string>;
+  /** Live status message for the ticker. */
+  statusMessage: string | null;
+
+  loadFromDB: () => Promise<void>;
+  addFeed: (url: string, category?: string) => Promise<void>;
+  refreshFeed: (feedId: number) => Promise<void>;
+  refreshAllFeeds: () => Promise<void>;
+  deleteFeed: (feedId: number) => Promise<void>;
+  markRead: (articleId: number) => Promise<void>;
+  toggleStar: (articleId: number) => Promise<void>;
+  setSelectedFeedId: (feedId: number | null) => void;
+  openReader: (article: ArticleRecord) => void;
+  closeReader: () => void;
+  resetAll: () => Promise<void>;
+}
+
+const useFeedStore = create<FeedStore>((set, get) => ({
   feeds: [],
   articles: [],
   selectedFeedId: null,
@@ -27,9 +92,7 @@ const useFeedStore = create((set, get) => ({
   readerOpen: false,
   isLoading: false,
   error: null,
-  /** Map of feedUrl → error message for feeds that failed to load. */
   feedErrors: {},
-  /** Live status message for the ticker. */
   statusMessage: null,
 
   /**
@@ -47,7 +110,7 @@ const useFeedStore = create((set, get) => ({
       set({ statusMessage: 'First launch — planting default feeds…' });
       for (let i = 0; i < DEFAULT_FEEDS.length; i++) {
         set({ statusMessage: `Fetching ${DEFAULT_FEEDS[i].title} (${i + 1}/${DEFAULT_FEEDS.length})…` });
-        await get().addFeed(DEFAULT_FEEDS[i].url);
+        await get().addFeed(DEFAULT_FEEDS[i].url, DEFAULT_FEEDS[i].category);
       }
       _seeding = false;
     }
@@ -56,8 +119,11 @@ const useFeedStore = create((set, get) => ({
 
   /**
    * Add a new feed by URL. Fetches, parses, and stores in IndexedDB.
+   * `category` groups the feed under a folder in the sidebar's <Tree> —
+   * defaults to 'Other' for user-added feeds, which have no way to pick
+   * one via the Add Feed form.
    */
-  addFeed: async (url) => {
+  addFeed: async (url, category = 'Other') => {
     set({ isLoading: true, error: null, statusMessage: `Fetching ${url}…` });
     try {
       // Check for duplicate
@@ -69,8 +135,9 @@ const useFeedStore = create((set, get) => ({
 
       const parsed = await fetchAndParseFeed(url);
 
-      const feedRecord = {
+      const feedRecord: InsertType<FeedRecord, 'id'> = {
         url,
+        category,
         title: parsed.title || url,
         siteUrl: parsed.link || '',
         description: parsed.description || '',
@@ -82,7 +149,7 @@ const useFeedStore = create((set, get) => ({
       feedRecord.id = feedId;
 
       // Store articles
-      const articleRecords = (parsed.items || []).map((item) => ({
+      const articleRecords: InsertType<ArticleRecord, 'id'>[] = (parsed.items || []).map((item) => ({
         feedId,
         title: item.title || 'Untitled',
         link: item.link || '',
@@ -103,7 +170,7 @@ const useFeedStore = create((set, get) => ({
       const allArticles = await db.articles.orderBy('pubDate').reverse().toArray();
       set({ feeds: allFeeds, articles: allArticles, isLoading: false });
     } catch (err) {
-      const msg = err.message || 'Failed to add feed';
+      const msg = errorMessage(err, 'Failed to add feed');
       set((state) => ({
         isLoading: false,
         error: msg,
@@ -130,7 +197,7 @@ const useFeedStore = create((set, get) => ({
         (await db.articles.where('feedId').equals(feedId).toArray()).map((a) => a.link)
       );
 
-      const newArticles = (parsed.items || [])
+      const newArticles: InsertType<ArticleRecord, 'id'>[] = (parsed.items || [])
         .filter((item) => item.link && !existingLinks.has(item.link))
         .map((item) => ({
           feedId,
@@ -157,11 +224,11 @@ const useFeedStore = create((set, get) => ({
       set({ feeds: allFeeds, articles: allArticles, isLoading: false });
     } catch (err) {
       const feedRecord = await db.feeds.get(feedId);
-      const msg = err.message || 'Failed to refresh feed';
+      const msg = errorMessage(err, 'Failed to refresh feed');
       set((state) => ({
         isLoading: false,
         error: msg,
-        feedErrors: { ...state.feedErrors, [feedRecord?.url || feedId]: msg },
+        feedErrors: { ...state.feedErrors, [feedRecord?.url ?? String(feedId)]: msg },
       }));
     }
   },
@@ -178,7 +245,7 @@ const useFeedStore = create((set, get) => ({
         await get().refreshFeed(feeds[i].id);
       } catch (err) {
         set((state) => ({
-          feedErrors: { ...state.feedErrors, [feeds[i].url]: err.message || 'Failed' },
+          feedErrors: { ...state.feedErrors, [feeds[i].url]: errorMessage(err, 'Failed') },
         }));
       }
     }
@@ -236,7 +303,13 @@ const useFeedStore = create((set, get) => ({
     }
   },
 
-  closeReader: () => set({ readerOpen: false, selectedArticle: null }),
+  // Leaves `selectedArticle` set rather than nulling it here -- Reader.tsx
+  // bails out early with `if (!selectedArticle) return null`, which would
+  // unmount <Drawer> (and its whole animated-close lifecycle) the instant
+  // this ran, before the exit animation ever got a chance to play. The
+  // next `openReader()` overwrites it anyway; staying stale in between is
+  // harmless since nothing reads it while readerOpen is false.
+  closeReader: () => set({ readerOpen: false }),
 
   /**
    * Nuke IndexedDB and reload — fresh start with default feeds.

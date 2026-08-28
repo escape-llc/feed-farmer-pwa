@@ -1,6 +1,18 @@
-import { CardSimple, Card, Badge, Separator, Button } from '#toolcrib';
+import { CardSimple, Card, Badge, Separator, Button, Grid, EmptyState, Skeleton } from '#toolcrib';
 import useFeedStore from '../store';
 import { formatDistanceToNow } from 'date-fns';
+
+function ArticleRowSkeleton() {
+  return (
+    <div className="article-row" aria-hidden="true">
+      <div className="article-meta" style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+        <Skeleton shape="text" width="55%" height="0.875rem" />
+        <Skeleton shape="text" width="90%" height="0.75rem" />
+        <Skeleton shape="text" width="30%" height="0.6875rem" />
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { feeds, articles, openReader, feedErrors, refreshAllFeeds, isLoading } = useFeedStore();
@@ -20,23 +32,25 @@ export default function Dashboard() {
         <p>Your feed farm at a glance</p>
       </div>
 
-      <div className="stats-grid">
-        <CardSimple title="Feeds">
-          <div className="stat-value">{totalFeeds}</div>
-          <div className="stat-label">Subscriptions</div>
-        </CardSimple>
-        <CardSimple title="Unread">
-          <div className="stat-value">{unreadCount}</div>
-          <div className="stat-label">Articles to read</div>
-        </CardSimple>
-        <CardSimple title="Starred">
-          <div className="stat-value">{starredCount}</div>
-          <div className="stat-label">Saved for later</div>
-        </CardSimple>
-        <CardSimple title="Total">
-          <div className="stat-value">{articles.length}</div>
-          <div className="stat-label">Articles harvested</div>
-        </CardSimple>
+      <div style={{ marginBottom: '2rem' }}>
+        <Grid columns="auto-fit" minColWidth="10rem">
+          <CardSimple title="Feeds">
+            <div className="stat-value">{totalFeeds}</div>
+            <div className="stat-label">Subscriptions</div>
+          </CardSimple>
+          <CardSimple title="Unread">
+            <div className="stat-value">{unreadCount}</div>
+            <div className="stat-label">Articles to read</div>
+          </CardSimple>
+          <CardSimple title="Starred">
+            <div className="stat-value">{starredCount}</div>
+            <div className="stat-label">Saved for later</div>
+          </CardSimple>
+          <CardSimple title="Total">
+            <div className="stat-value">{articles.length}</div>
+            <div className="stat-label">Articles harvested</div>
+          </CardSimple>
+        </Grid>
       </div>
 
       {/* Feed errors */}
@@ -70,10 +84,16 @@ export default function Dashboard() {
 
       <div style={{ marginTop: '1.5rem' }}>
         <div className="section-title">📰 Recent Harvest</div>
-        {recentArticles.length === 0 ? (
-          <p style={{ color: 'var(--ai-text-secondary)', fontSize: '0.875rem' }}>
-            No articles yet. Add some feeds to get started!
-          </p>
+        {isLoading && recentArticles.length === 0 ? (
+          <>
+            <ArticleRowSkeleton />
+            <ArticleRowSkeleton />
+            <ArticleRowSkeleton />
+          </>
+        ) : recentArticles.length === 0 ? (
+          <EmptyState>
+            <EmptyState.Title>No articles yet. Add some feeds to get started!</EmptyState.Title>
+          </EmptyState>
         ) : (
           recentArticles.map((article) => (
             <div

@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ToolcribProvider } from '#toolcrib';
-import App from './App.jsx';
+import App from './App';
 import './index.css';
 
 /**
@@ -16,9 +16,9 @@ const farmerTheme = {
     hueSpread: 25,
     isDarkMode: true,
   },
-};
+} as const;
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToolcribProvider theme={farmerTheme}>
       <App />

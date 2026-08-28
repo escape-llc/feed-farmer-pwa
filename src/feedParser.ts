@@ -1,3 +1,5 @@
+import type { ParsedFeed, ParsedFeedItem } from './types';
+
 /**
  * Lightweight RSS/Atom feed parser using the browser's native DOMParser.
  * No Node.js dependencies — works entirely client-side.
@@ -5,16 +7,14 @@
 
 /**
  * Parse an RSS or Atom feed from raw XML text.
- * @param {string} xml  Raw XML string
- * @returns {{ title, link, description, image, items[] }}
  */
-export function parseFeed(xml) {
+export function parseFeed(xml: string): ParsedFeed {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
 
   // Check for parse errors
   const parseError = doc.querySelector('parsererror');
   if (parseError) {
-    throw new Error('Invalid feed XML: ' + parseError.textContent.slice(0, 120));
+    throw new Error('Invalid feed XML: ' + (parseError.textContent ?? '').slice(0, 120));
   }
 
   const root = doc.documentElement;
@@ -27,7 +27,7 @@ export function parseFeed(xml) {
 }
 
 /* ── RSS 2.0 / RSS 1.0 ── */
-function parseRSS(doc) {
+function parseRSS(doc: Document): ParsedFeed {
   const channel = doc.querySelector('channel') || doc.documentElement;
 
   return {
@@ -35,7 +35,7 @@ function parseRSS(doc) {
     link: text(channel, 'link'),
     description: text(channel, 'description'),
     image: text(channel, 'image > url') || '',
-    items: [...doc.querySelectorAll('item')].map((item) => ({
+    items: [...doc.querySelectorAll('item')].map((item): ParsedFeedItem => ({
       title: text(item, 'title') || 'Untitled',
       link: text(item, 'link') || '',
       content: cdataText(item, 'content\\:encoded') || cdataText(item, 'content:encoded') || text(item, 'description') || '',
@@ -48,7 +48,7 @@ function parseRSS(doc) {
 }
 
 /* ── Atom ── */
-function parseAtom(doc) {
+function parseAtom(doc: Document): ParsedFeed {
   const feed = doc.documentElement;
 
   return {
@@ -56,7 +56,7 @@ function parseAtom(doc) {
     link: atomLink(feed),
     description: text(feed, 'subtitle') || '',
     image: text(feed, 'icon') || text(feed, 'logo') || '',
-    items: [...feed.querySelectorAll('entry')].map((entry) => {
+    items: [...feed.querySelectorAll('entry')].map((entry): ParsedFeedItem => {
       const content = text(entry, 'content') || text(entry, 'summary') || '';
       return {
         title: text(entry, 'title') || 'Untitled',
@@ -74,40 +74,40 @@ function parseAtom(doc) {
 /* ── Helpers ── */
 
 /** Get the text content of the first matching element. */
-function text(parent, selector) {
+function text(parent: Element, selector: string): string {
   try {
     const el = parent.querySelector(selector);
-    return el ? el.textContent.trim() : '';
+    return el ? (el.textContent ?? '').trim() : '';
   } catch {
     // Namespaced selectors may throw — try getElementsByTagName fallback
     const parts = selector.split(':');
     if (parts.length === 2) {
       const els = parent.getElementsByTagName(selector);
-      return els.length > 0 ? els[0].textContent.trim() : '';
+      return els.length > 0 ? (els[0].textContent ?? '').trim() : '';
     }
     return '';
   }
 }
 
 /** Extract CDATA-wrapped content (common for content:encoded). */
-function cdataText(parent, selector) {
+function cdataText(parent: Element, selector: string): string {
   try {
     const el = parent.querySelector(selector);
     if (!el) {
       // Fallback: getElementsByTagName for namespaced tags
       const tag = selector.replace(/\\\\/g, '');
       const els = parent.getElementsByTagName(tag);
-      if (els.length > 0) return els[0].textContent.trim();
+      if (els.length > 0) return (els[0].textContent ?? '').trim();
       return '';
     }
-    return el.textContent.trim();
+    return (el.textContent ?? '').trim();
   } catch {
     return '';
   }
 }
 
 /** Get the href from an Atom <link> element. */
-function atomLink(parent) {
+function atomLink(parent: Element): string {
   const links = parent.querySelectorAll('link');
   for (const link of links) {
     const rel = link.getAttribute('rel');
@@ -119,14 +119,14 @@ function atomLink(parent) {
 }
 
 /** Strip HTML tags from a string. */
-function stripHtml(html) {
+function stripHtml(html: string): string {
   const div = document.createElement('div');
   div.innerHTML = html;
   return div.textContent || div.innerText || '';
 }
 
 /** Extract the first <img> src from HTML content. */
-function extractFirstImage(html) {
+function extractFirstImage(html: string): string {
   if (!html) return '';
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   return match ? match[1] : '';
