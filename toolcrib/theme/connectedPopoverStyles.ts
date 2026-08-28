@@ -1,5 +1,5 @@
-import React, { type ReactElement, type ReactNode, cloneElement, isValidElement } from 'react';
-import { type SquareCornerOption } from '../components/Card/Card';
+import React, { type ReactElement, type ReactNode, type RefObject, cloneElement, isValidElement, useEffect, useState } from 'react';
+import { type SquareCornerOption, resolveSquareCorners } from '../components/Card/Card';
 
 /** @barrelExport */
 export type PopoverSide = 'top' | 'right' | 'bottom' | 'left';
@@ -92,6 +92,86 @@ export interface CornerSquaringResult {
 }
 
 /**
+ * Radix's Popper-based `*.Content` (Popover, DropdownMenu) auto-flips to
+ * the opposite side on collision by default (`avoidCollisions`, on unless
+ * a caller explicitly disables it) — e.g. a `side="bottom"` popup near the
+ * bottom of the viewport actually renders above its trigger instead.
+ * Radix reflects whichever side it actually chose via a `data-side`
+ * attribute on the Content element itself, but has no callback for when
+ * that changes, so a `MutationObserver` on the attribute is the only way
+ * to learn about a flip. Every caller of `computeCornerSquaring` needs the
+ * *actual* side, not the merely-requested one — squaring the corner for
+ * "bottom" while Radix silently flipped to "top" squares the wrong edge
+ * entirely, reported directly via a real screenshot of exactly that.
+ * Falls back to `requestedSide` before the content has mounted/measured
+ * (or while closed), so a caller can use the return value unconditionally
+ * without an extra null check.
+ */
+export function useActualPopoverSide(
+  contentRef: RefObject<HTMLElement | null>,
+  requestedSide: PopoverSide,
+  isOpen: boolean
+): PopoverSide {
+  const [actualSide, setActualSide] = useState<PopoverSide>(requestedSide);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActualSide(requestedSide);
+      return;
+    }
+
+    let observer: MutationObserver | undefined;
+    let rafId: number | undefined;
+    let cancelled = false;
+
+    // `data-side` isn't guaranteed to land on the ref'd node itself --
+    // Radix's actual Popper positioning wrapper carrying it can be a
+    // different element than whichever one a caller's own `ref` forwards
+    // to. Checking both self and descendant, and observing with
+    // `subtree: true`, means this works regardless of exactly which node
+    // in Content's own internal structure ends up owning the attribute.
+    const attach = (node: HTMLElement) => {
+      const readSide = () => {
+        const target = node.hasAttribute('data-side') ? node : node.querySelector('[data-side]');
+        const attr = target?.getAttribute('data-side');
+        if (attr === 'top' || attr === 'right' || attr === 'bottom' || attr === 'left') {
+          setActualSide(attr);
+        }
+      };
+      readSide();
+      observer = new MutationObserver(readSide);
+      observer.observe(node, { attributes: true, attributeFilter: ['data-side'], subtree: true });
+    };
+
+    // Radix's Content is Presence-mounted, which can land one render tick
+    // after `isOpen` flips true -- `contentRef.current` isn't guaranteed
+    // to be populated yet in this same effect run (confirmed directly: it
+    // was reliably still null here, silently no-op'ing the whole hook).
+    // This effect only reruns when `isOpen` itself changes, so missing
+    // that window meant never picking up the ref at all. Polling via rAF
+    // for a few frames catches it as soon as it actually mounts.
+    const waitForNode = () => {
+      if (cancelled) return;
+      const node = contentRef.current;
+      if (node) {
+        attach(node);
+      } else {
+        rafId = requestAnimationFrame(waitForNode);
+      }
+    };
+    waitForNode();
+
+    return () => {
+      cancelled = true;
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
+      observer?.disconnect();
+    };
+  }, [contentRef, requestedSide, isOpen]);
+
+  return actualSide;
+}
+
+/**
  * The one place "the look" — a popup that reads as directly attached to
  * its trigger rather than a floating chip — gets computed, for any
  * Radix Popper-based trigger+popup pair (`Popup`, `Combobox`, `DropdownMenu`
@@ -147,6 +227,45 @@ export function computeCornerSquaring(
   };
 }
 
+// Expands any SquareCornerOption to the literal corners it names -- a
+// small, deliberate parallel to Card.tsx's own resolveSquareCorners
+// (which does the same case analysis but returns CSS properties instead
+// of corner names). Kept separate rather than refactored into one shared
+// function: resolveSquareCorners is exercised by every existing
+// squareCorners-aware component's tests already, and this file's own
+// need (uniting two *sources* of squaring into one corner set, not just
+// resolving one value to CSS) is a different enough shape that sharing
+// the implementation would mean threading an output-format flag through
+// otherwise-stable, already-shipped code for a small win.
+function expandToCorners(option?: SquareCornerOption): Corner[] {
+  if (!option || option === 'none' || option === 'auto') return [];
+  if (option === 'all') return ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  if (option === 'top') return ['top-left', 'top-right'];
+  if (option === 'bottom') return ['bottom-left', 'bottom-right'];
+  if (option === 'left') return ['top-left', 'bottom-left'];
+  if (option === 'right') return ['top-right', 'bottom-right'];
+  if (Array.isArray(option)) return option;
+  return [];
+}
+
+/**
+ * Unions two independent sources of corner-squaring into one
+ * `SquareCornerOption` — needed because a trigger can legitimately need
+ * squaring for two unrelated reasons at once: "attached to its open
+ * popup panel" (this file's own `computeCornerSquaring`) and "a member
+ * of a `<UIGroup>`" (`UIGroupContext`). Neither should silently discard
+ * the other — found for real, not theoretically: `Popup`'s own trigger
+ * clone always sets an explicit `squareCorners` (even `'none'` while
+ * closed), which is never `undefined`, so a plain `??` fallback to
+ * `useUIGroupSquareCorners()` at the Button level never got a chance to
+ * apply — the popup-attachment squaring silently won every time,
+ * regardless of the trigger's actual position in a UIGroup row.
+ */
+function mergeSquareCorners(a?: SquareCornerOption, b?: SquareCornerOption): SquareCornerOption {
+  const corners = [...new Set([...expandToCorners(a), ...expandToCorners(b)])];
+  return corners.length > 0 ? corners : 'none';
+}
+
 /**
  * Applies a `CornerSquaringResult`'s trigger-side corner to an arbitrary
  * `trigger` element: a toolcrib-native component (anything not a bare
@@ -155,14 +274,30 @@ export function computeCornerSquaring(
  * direct `style` patch instead, since it has no such prop to consult. Same
  * dispatch `Popup` already used, extracted so `DropdownMenu` doesn't have
  * to duplicate it to get the same trigger-squaring `Popup` has.
+ *
+ * `uiGroupSquareCorners` — the caller's own `useUIGroupSquareCorners()`
+ * result, if any — is merged in rather than overridden by this function's
+ * own popup-attachment squaring; see `mergeSquareCorners`'s own comment
+ * for why that distinction matters. Optional and defaults to `undefined`
+ * (no UIGroup involved) so existing callers that haven't been updated
+ * still compile and behave exactly as before.
  */
-export function renderTriggerWithCornerSquaring(trigger: ReactNode, squaring: CornerSquaringResult): ReactNode {
+export function renderTriggerWithCornerSquaring(
+  trigger: ReactNode,
+  squaring: CornerSquaringResult,
+  uiGroupSquareCorners?: SquareCornerOption
+): ReactNode {
   if (!isValidElement(trigger)) return trigger;
   const element = trigger as ReactElement<any>;
   const isToolcribComponent = typeof element.type !== 'string';
   return isToolcribComponent
-    ? cloneElement(element, { squareCorners: squaring.triggerSquareCorners })
+    ? cloneElement(element, { squareCorners: mergeSquareCorners(squaring.triggerSquareCorners, uiGroupSquareCorners) })
     : cloneElement(element, {
-        style: { ...(element.props as any).style, ...squaring.triggerCornerStyle, transition: 'border-radius 0.15s ease' },
+        style: {
+          ...(element.props as any).style,
+          ...squaring.triggerCornerStyle,
+          ...resolveSquareCorners(uiGroupSquareCorners),
+          transition: 'border-radius 0.15s ease',
+        },
       });
 }

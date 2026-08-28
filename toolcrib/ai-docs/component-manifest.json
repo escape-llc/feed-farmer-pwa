@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "description": "AI-consumable component manifest for React UI toolkit. All units are rem unless noted.",
   "themeSystem": {
     "colorSpace": "HSV",
@@ -192,7 +192,10 @@
       "--ai-text-primary",
       "--ai-text-secondary",
       "--ai-toast-accent-width",
+      "--ai-toast-collapse-duration",
+      "--ai-toast-exit-duration",
       "--ai-toast-shadow",
+      "--ai-toast-swipe-exit-duration",
       "--ai-toggle-gap",
       "--ai-toggle-padding",
       "--ai-togglecontrol-checkbox-size",
