@@ -61,9 +61,6 @@ function errorMessage(err: unknown, fallback: string): string {
 interface FeedStore {
   feeds: FeedRecord[];
   articles: ArticleRecord[];
-  selectedFeedId: number | null;
-  selectedArticle: ArticleRecord | null;
-  readerOpen: boolean;
   isLoading: boolean;
   error: string | null;
   /** Map of feedUrl → error message for feeds that failed to load. */
@@ -78,18 +75,12 @@ interface FeedStore {
   deleteFeed: (feedId: number) => Promise<void>;
   markRead: (articleId: number) => Promise<void>;
   toggleStar: (articleId: number) => Promise<void>;
-  setSelectedFeedId: (feedId: number | null) => void;
-  openReader: (article: ArticleRecord) => void;
-  closeReader: () => void;
   resetAll: () => Promise<void>;
 }
 
 const useFeedStore = create<FeedStore>((set, get) => ({
   feeds: [],
   articles: [],
-  selectedFeedId: null,
-  selectedArticle: null,
-  readerOpen: false,
   isLoading: false,
   error: null,
   feedErrors: {},
@@ -261,11 +252,7 @@ const useFeedStore = create<FeedStore>((set, get) => ({
     await db.feeds.delete(feedId);
     const allFeeds = await db.feeds.toArray();
     const allArticles = await db.articles.orderBy('pubDate').reverse().toArray();
-    set({
-      feeds: allFeeds,
-      articles: allArticles,
-      selectedFeedId: get().selectedFeedId === feedId ? null : get().selectedFeedId,
-    });
+    set({ feeds: allFeeds, articles: allArticles });
   },
 
   /**
@@ -292,24 +279,6 @@ const useFeedStore = create<FeedStore>((set, get) => ({
       ),
     }));
   },
-
-  setSelectedFeedId: (feedId) => set({ selectedFeedId: feedId }),
-
-  openReader: (article) => {
-    set({ selectedArticle: article, readerOpen: true });
-    // Also mark as read
-    if (article && !article.isRead) {
-      get().markRead(article.id);
-    }
-  },
-
-  // Leaves `selectedArticle` set rather than nulling it here -- Reader.tsx
-  // bails out early with `if (!selectedArticle) return null`, which would
-  // unmount <Drawer> (and its whole animated-close lifecycle) the instant
-  // this ran, before the exit animation ever got a chance to play. The
-  // next `openReader()` overwrites it anyway; staying stale in between is
-  // harmless since nothing reads it while readerOpen is false.
-  closeReader: () => set({ readerOpen: false }),
 
   /**
    * Nuke IndexedDB and reload — fresh start with default feeds.

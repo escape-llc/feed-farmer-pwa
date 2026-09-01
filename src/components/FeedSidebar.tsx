@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Tree, Badge } from '#toolcrib';
+import { Tree, Badge, aiBus } from '#toolcrib';
 import useFeedStore from '../store';
+import { useHashRoute } from '../hashRoute';
 import type { FeedRecord } from '../types';
 
 const DASHBOARD_ID = '__dashboard__';
 
 export default function FeedSidebar() {
-  const { feeds, articles, selectedFeedId, setSelectedFeedId } = useFeedStore();
+  const { feeds, articles } = useFeedStore();
+  const { feedId } = useHashRoute();
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
   // Count unread per feed
@@ -71,7 +73,7 @@ export default function FeedSidebar() {
     })),
   ];
 
-  const activeId = selectedFeedId ? String(selectedFeedId) : DASHBOARD_ID;
+  const activeId = feedId ? String(feedId) : DASHBOARD_ID;
 
   return (
     <Tree
@@ -83,7 +85,13 @@ export default function FeedSidebar() {
         // Folder rows aren't navigable content — ignore selection there
         // and let <Tree> handle expand/collapse for them on its own.
         if (!id || id.startsWith('folder-')) return;
-        setSelectedFeedId(id === DASHBOARD_ID ? null : Number(id));
+        // Routed through aiBus (rather than calling mergeHash directly)
+        // specifically to exercise toolcrib's new RouterAdapterProvider
+        // bridge in its real, everyday-use surface. One real trade-off:
+        // hashchange fires asynchronously relative to this write, so
+        // <Tree selectedId> no longer updates perfectly synchronously on
+        // click the way a direct state call would — usually imperceptible.
+        aiBus.navigate(id === DASHBOARD_ID ? 'feed=' : 'feed=' + id);
       }}
       aria-label="Feed navigation"
     />

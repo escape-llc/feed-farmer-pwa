@@ -1,5 +1,6 @@
 import { Button, EmptyState, Skeleton, Tooltip } from '#toolcrib';
 import useFeedStore from '../store';
+import { useHashRoute, openArticle } from '../hashRoute';
 import { formatDistanceToNow } from 'date-fns';
 
 function ArticleRowSkeleton() {
@@ -15,11 +16,11 @@ function ArticleRowSkeleton() {
 }
 
 export default function ArticleList() {
-  const { feeds, articles, selectedFeedId, openReader, refreshFeed, toggleStar, isLoading } =
-    useFeedStore();
+  const { feeds, articles, refreshFeed, toggleStar, isLoading } = useFeedStore();
+  const { feedId } = useHashRoute();
 
-  const feed = feeds.find((f) => f.id === selectedFeedId);
-  const feedArticles = articles.filter((a) => a.feedId === selectedFeedId);
+  const feed = feeds.find((f) => f.id === feedId);
+  const feedArticles = articles.filter((a) => a.feedId === feedId);
 
   if (!feed) {
     return (
@@ -61,10 +62,10 @@ export default function ArticleList() {
           <div
             key={article.id}
             className={`article-row ${article.isRead ? 'read' : 'unread'}`}
-            onClick={() => openReader(article)}
+            onClick={() => openArticle(article)}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && openReader(article)}
+            onKeyDown={(e) => e.key === 'Enter' && openArticle(article)}
           >
             {!article.isRead && <div className="unread-dot" />}
             <div className="article-meta">

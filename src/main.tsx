@@ -1,7 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ToolcribProvider } from '#toolcrib';
+import { ToolcribProvider, RouterAdapterProvider } from '#toolcrib';
 import App from './App';
+import { mergeHash } from './hashRoute';
 import './index.css';
 
 /**
@@ -21,7 +22,9 @@ const farmerTheme = {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToolcribProvider theme={farmerTheme}>
-      <App />
+      <RouterAdapterProvider adapter={{ navigate: mergeHash }}>
+        <App />
+      </RouterAdapterProvider>
     </ToolcribProvider>
   </StrictMode>,
 );

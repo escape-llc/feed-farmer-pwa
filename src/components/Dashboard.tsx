@@ -1,5 +1,6 @@
 import { CardSimple, Card, Badge, Separator, Button, Grid, EmptyState, Skeleton } from '#toolcrib';
 import useFeedStore from '../store';
+import { openArticle } from '../hashRoute';
 import { formatDistanceToNow } from 'date-fns';
 
 function ArticleRowSkeleton() {
@@ -15,7 +16,7 @@ function ArticleRowSkeleton() {
 }
 
 export default function Dashboard() {
-  const { feeds, articles, openReader, feedErrors, refreshAllFeeds, isLoading } = useFeedStore();
+  const { feeds, articles, feedErrors, refreshAllFeeds, isLoading } = useFeedStore();
 
   const totalFeeds = feeds.length;
   const unreadCount = articles.filter((a) => !a.isRead).length;
@@ -99,10 +100,10 @@ export default function Dashboard() {
             <div
               key={article.id}
               className={`article-row ${article.isRead ? 'read' : 'unread'}`}
-              onClick={() => openReader(article)}
+              onClick={() => openArticle(article)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && openReader(article)}
+              onKeyDown={(e) => e.key === 'Enter' && openArticle(article)}
             >
               {!article.isRead && <div className="unread-dot" />}
               <div className="article-meta">

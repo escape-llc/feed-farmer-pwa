@@ -3,6 +3,7 @@ import { Drawer, Button, ToggleGroup, Badge, Tooltip } from '#toolcrib';
 import DOMPurify from 'dompurify';
 import { format } from 'date-fns';
 import useFeedStore from '../store';
+import { useHashRoute, closeArticle } from '../hashRoute';
 
 /** Consider RSS content "substantial" if it has this many chars of actual text. */
 const CONTENT_THRESHOLD = 300;
@@ -14,7 +15,10 @@ function stripHtml(html: string) {
 }
 
 export default function Reader() {
-  const { selectedArticle, readerOpen, closeReader, toggleStar, feeds } = useFeedStore();
+  const { articleId } = useHashRoute();
+  const { articles, feeds, toggleStar } = useFeedStore();
+  const selectedArticle = articles.find((a) => a.id === articleId);
+  const readerOpen = Boolean(selectedArticle);
   const scrollRef = useRef(null);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [viewMode, setViewMode] = useState<'feed' | 'original' | 'auto'>('auto');
@@ -76,7 +80,7 @@ export default function Reader() {
       position="right"
       isOpen={readerOpen}
       onOpenChange={(open) => {
-        if (!open) closeReader();
+        if (!open) closeArticle();
       }}
       title={feed?.title || 'Article'}
       width="min(100vw, 56rem)"
@@ -90,7 +94,7 @@ export default function Reader() {
 
       {/* Toolbar */}
       <div className="reader-toolbar" style={{ padding: '0.5rem 1rem' }}>
-        <Button variant="ghost" size="sm" icon="←" onClick={closeReader}>
+        <Button variant="ghost" size="sm" icon="←" onClick={closeArticle}>
           Back
         </Button>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

@@ -11,8 +11,11 @@ import {
   Combobox,
   Tooltip,
   UIGroup,
+  aiBus,
+  useRouterBridge,
 } from '#toolcrib';
 import useFeedStore from './store';
+import { useHashRoute, openArticle } from './hashRoute';
 import FeedSidebar from './components/FeedSidebar';
 import Dashboard from './components/Dashboard';
 import ArticleList from './components/ArticleList';
@@ -21,17 +24,9 @@ import AddFeedModal from './components/AddFeedModal';
 import Ticker from './components/Ticker';
 
 export default function App() {
-  const {
-    feeds,
-    articles,
-    selectedFeedId,
-    setSelectedFeedId,
-    openReader,
-    loadFromDB,
-    refreshAllFeeds,
-    resetAll,
-    isLoading,
-  } = useFeedStore();
+  const { feeds, articles, loadFromDB, refreshAllFeeds, resetAll, isLoading } = useFeedStore();
+  const { feedId } = useHashRoute();
+  useRouterBridge();
   const [searchValue, setSearchValue] = useState('');
 
   useEffect(() => {
@@ -41,12 +36,12 @@ export default function App() {
   const searchOptions = articles.map((a) => ({ label: a.title, value: String(a.id) }));
 
   const paletteItems = [
-    { value: 'dashboard', label: '🌾 Dashboard', group: 'Navigate', onSelect: () => setSelectedFeedId(null) },
+    { value: 'dashboard', label: '🌾 Dashboard', group: 'Navigate', onSelect: () => aiBus.navigate('feed=') },
     ...feeds.map((f) => ({
       value: `feed-${f.id}`,
       label: `📡 ${f.title}`,
       group: 'Navigate',
-      onSelect: () => setSelectedFeedId(f.id),
+      onSelect: () => aiBus.navigate('feed=' + f.id),
     })),
     {
       value: 'refresh-all',
@@ -81,7 +76,7 @@ export default function App() {
                   onChange={(val) => {
                     const article = articles.find((a) => String(a.id) === val);
                     if (article) {
-                      openReader(article);
+                      openArticle(article);
                       setSearchValue('');
                     }
                   }}
@@ -147,7 +142,7 @@ export default function App() {
       </AppShell.Sidebar>
 
       <AppShell.Main>
-        {selectedFeedId ? <ArticleList /> : <Dashboard />}
+        {feedId ? <ArticleList /> : <Dashboard />}
       </AppShell.Main>
 
       <Reader />
