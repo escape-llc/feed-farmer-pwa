@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.10.0",
+  "version": "0.12.0",
   "description": "AI-consumable component manifest for React UI toolkit. All units are rem unless noted.",
   "themeSystem": {
     "colorSpace": "HSV",
@@ -682,6 +682,10 @@
         "payload": "{ timestamp: string }"
       },
       {
+        "name": "route:navigate",
+        "payload": "{ to: string }"
+      },
+      {
         "name": "layout:domain:created",
         "payload": "{ domainId: string; parentId: string; orientation: 'horizontal' | 'vertical' }"
       },
@@ -733,6 +737,10 @@
       {
         "method": "aiBus.closePopup(id)",
         "emits": "popup:hidden"
+      },
+      {
+        "method": "aiBus.navigate(to)",
+        "emits": "route:navigate"
       },
       {
         "method": "aiBus.showToast(message, type?, priority?)",
@@ -1819,7 +1827,7 @@
         },
         "onSubmit": {
           "type": "(values: T) => void | Promise<void>",
-          "description": "Called with validated values on successful submission."
+          "description": "Called with the schema's parsed output on successful submission — for\na schema using `z.coerce.number()`, `.transform()`, etc., this is the\ntransformed value (a real `number`), not the raw string every field\ncontrol itself always stores. Forms with no `schema` get the raw field\nvalues as-is, since there's nothing to parse them into."
         },
         "id": {
           "type": "string",
