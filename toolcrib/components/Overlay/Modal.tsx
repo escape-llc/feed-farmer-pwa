@@ -1,8 +1,10 @@
+'use client';
+
 import React, { useState, type ReactNode, type ReactElement } from 'react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
-import { Z_INDEX } from '../../theme/zIndex';
+import { useStackedZIndex } from '../../theme/zIndexStack';
 import { AIErrorBoundary } from '../ErrorBoundary/AIErrorBoundary';
 import { useStableId } from '../shared/useStableId';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
@@ -44,7 +46,14 @@ export interface ModalProps {
    */
   height?: string;
   /**
-   * Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default.
+   * Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An
+   * intentional escape hatch, not guarded against an arbitrary/conflicting
+   * value -- most consumers should never need it. Two Modal instances left
+   * at their shared default (nested, or simply both open) get the
+   * identical numeric z-index; real stacking between them then falls back
+   * to portal/DOM append order, which is what actually keeps a later-
+   * opened instance on top today (verified live, see
+   * e2e/zindex-stress.spec.ts) -- not a second, independent guarantee.
    * @default Z_INDEX.MODAL (200)
    */
   zIndex?: number;
@@ -91,13 +100,19 @@ export const Modal: React.FC<ModalProps> & {
   onOpenChange,
   width = '31.25rem',
   height,
-  zIndex = Z_INDEX.MODAL,
+  zIndex: zIndexProp,
   ariaLabel = 'Dialog',
   align = 'center',
   overrides,
 }) => {
   const id = useStableId(propId, 'modal');
   const targetDocument = useTargetDocument();
+  // Always called, regardless of whether zIndexProp ends up used (rules of
+  // hooks) -- see useStackedZIndex's own doc comment for why this is what
+  // makes nested/simultaneous Modals stack deterministically instead of by
+  // portal-order coincidence.
+  const autoZIndex = useStackedZIndex('MODAL');
+  const zIndex = zIndexProp ?? autoZIndex;
   useInjectInteractionStyles();
   const { vars: modalVars } = useSliceOverrides(ModalThemeSlice, overrides);
   const [internalIsOpen, setInternalIsOpen] = useState(false);
@@ -159,13 +174,14 @@ export const Modal: React.FC<ModalProps> & {
         >
           <DialogPrimitive.Content
             aria-describedby={undefined}
+            aria-modal="true"
             data-testid="modal-container"
             className="ai-focus-ring"
             style={{
               background: 'var(--ai-bg-surface, #ffffff)',
               borderRadius: 'var(--ai-radius-lg, 0.75rem)',
               border: '0.0625rem solid var(--ai-border, #e5e7eb)',
-              boxShadow: '0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3)',
+              boxShadow: 'var(--ai-shadow-lg, 0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3))',
               width,
               height,
               maxWidth: '90vw',

@@ -1,3 +1,5 @@
+'use client';
+
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { type HSVColor } from './hsv';
 import {
@@ -7,54 +9,10 @@ import {
   generateHarmonyPalette,
   paletteToCSSVariables,
 } from './harmonies';
-import { type PaddingMode, PaddingThemeSlice } from './padding';
-import { type MarginMode, MarginThemeSlice } from './margin';
-import { type CornerRadiusMode, RadiusThemeSlice } from './radius';
-import { type ShadowMode, ShadowThemeSlice } from './shadow';
-import { DataTableThemeSlice } from '../components/DataTable/DataTableSlice';
-import { AnimationThemeSlice } from './animation';
-import { TabThemeSlice } from '../components/TabStrip/TabSlice';
-import { DrawerThemeSlice } from '../components/Overlay/DrawerSlice';
-import { AccordionThemeSlice } from '../components/Accordion/AccordionSlice';
-import { CardThemeSlice } from '../components/Card/CardSlice';
-import { TooltipThemeSlice } from '../components/Tooltip/TooltipSlice';
-import { ButtonThemeSlice } from '../components/Form/ButtonSlice';
-import { InputThemeSlice } from '../components/Form/InputSlice';
-import { ToggleControlThemeSlice } from '../components/Form/ToggleControlSlice';
-import { SelectThemeSlice } from '../components/Form/SelectSlice';
-import { RadioGroupThemeSlice } from '../components/Form/RadioGroupSlice';
-import { SliderThemeSlice } from '../components/Form/SliderSlice';
-import { ModalThemeSlice } from '../components/Overlay/ModalSlice';
-import { AlertDialogThemeSlice } from '../components/AlertDialog/AlertDialogSlice';
-import { PopupThemeSlice } from '../components/Overlay/PopupSlice';
-import { ToastThemeSlice } from '../components/Toast/ToastSlice';
-import { DropdownMenuThemeSlice } from '../components/DropdownMenu/DropdownMenuSlice';
-import { ContextMenuThemeSlice } from '../components/ContextMenu/ContextMenuSlice';
-import { ProgressThemeSlice } from '../components/Progress/ProgressSlice';
-import { SeparatorThemeSlice } from '../components/Separator/SeparatorSlice';
-import { AvatarThemeSlice } from '../components/Avatar/AvatarSlice';
-import { ToggleThemeSlice } from '../components/ToggleGroup/ToggleSlice';
-import { CollapsibleThemeSlice } from '../components/Collapsible/CollapsibleSlice';
-import { UIGroupThemeSlice } from '../components/UIGroup/UIGroupSlice';
-import { ToolbarThemeSlice } from '../components/Toolbar/ToolbarSlice';
-import { AppShellThemeSlice } from '../components/AppShell/AppShellSlice';
-import { TypographyThemeSlice } from './typography';
-import { TreeThemeSlice } from '../components/Tree/TreeSlice';
-import { RatingThemeSlice } from '../components/Rating/RatingSlice';
-import { SidebarThemeSlice } from '../components/Sidebar/SidebarSlice';
-import { StepperThemeSlice } from '../components/Stepper/StepperSlice';
-import { DatePickerThemeSlice } from '../components/DatePicker/DatePickerSlice';
-import { BreadcrumbThemeSlice } from '../components/Breadcrumb/BreadcrumbSlice';
-import { CarouselThemeSlice } from '../components/Carousel/CarouselSlice';
-import { ComboboxThemeSlice } from '../components/Form/ComboboxSlice';
-import { CommandPaletteThemeSlice } from '../components/CommandPalette/CommandPaletteSlice';
-import { FileUploadThemeSlice } from '../components/Form/FileUploadSlice';
-import { GalleryThemeSlice } from '../components/Gallery/GallerySlice';
-import { HoverCardThemeSlice } from '../components/HoverCard/HoverCardSlice';
-import { LabelThemeSlice } from '../components/Form/LabelSlice';
-import { ScrollAreaThemeSlice } from '../components/ScrollArea/ScrollAreaSlice';
-import { ViewerThemeSlice } from '../components/Viewer/ViewerSlice';
-import { ChartThemeSlice } from '../components/Chart/ChartSlice';
+import { type PaddingMode } from './padding';
+import { type MarginMode } from './margin';
+import { type CornerRadiusMode } from './radius';
+import { type ShadowMode } from './shadow';
 import { globalThemeSliceRegistry } from './slice';
 import { type ToolcribSliceStateMap, type ToolcribSliceStates } from './sliceStateMap';
 import { aiBus } from '../eventBus/eventBus';
@@ -67,58 +25,25 @@ import {
   generateResponsiveCSS,
 } from './responsive';
 import { injectSharedAnimationKeyframes } from './animationKeyframes';
+import { injectLivingColorStyles } from './livingColorStyles';
 import { TargetDocumentContext } from './targetDocumentContext';
 import { NonceContext } from './nonceContext';
-
-// Register standard theme slices
-globalThemeSliceRegistry.register(PaddingThemeSlice);
-globalThemeSliceRegistry.register(MarginThemeSlice);
-globalThemeSliceRegistry.register(RadiusThemeSlice);
-globalThemeSliceRegistry.register(ShadowThemeSlice);
-globalThemeSliceRegistry.register(DataTableThemeSlice);
-globalThemeSliceRegistry.register(AnimationThemeSlice);
-globalThemeSliceRegistry.register(TabThemeSlice);
-globalThemeSliceRegistry.register(DrawerThemeSlice);
-globalThemeSliceRegistry.register(AccordionThemeSlice);
-globalThemeSliceRegistry.register(CardThemeSlice);
-globalThemeSliceRegistry.register(TooltipThemeSlice);
-globalThemeSliceRegistry.register(ButtonThemeSlice);
-globalThemeSliceRegistry.register(InputThemeSlice);
-globalThemeSliceRegistry.register(ToggleControlThemeSlice);
-globalThemeSliceRegistry.register(SelectThemeSlice);
-globalThemeSliceRegistry.register(RadioGroupThemeSlice);
-globalThemeSliceRegistry.register(SliderThemeSlice);
-globalThemeSliceRegistry.register(ModalThemeSlice);
-globalThemeSliceRegistry.register(AlertDialogThemeSlice);
-globalThemeSliceRegistry.register(PopupThemeSlice);
-globalThemeSliceRegistry.register(ToastThemeSlice);
-globalThemeSliceRegistry.register(DropdownMenuThemeSlice);
-globalThemeSliceRegistry.register(ContextMenuThemeSlice);
-globalThemeSliceRegistry.register(ProgressThemeSlice);
-globalThemeSliceRegistry.register(SeparatorThemeSlice);
-globalThemeSliceRegistry.register(AvatarThemeSlice);
-globalThemeSliceRegistry.register(ToggleThemeSlice);
-globalThemeSliceRegistry.register(CollapsibleThemeSlice);
-globalThemeSliceRegistry.register(UIGroupThemeSlice);
-globalThemeSliceRegistry.register(ToolbarThemeSlice);
-globalThemeSliceRegistry.register(AppShellThemeSlice);
-globalThemeSliceRegistry.register(TypographyThemeSlice);
-globalThemeSliceRegistry.register(TreeThemeSlice);
-globalThemeSliceRegistry.register(RatingThemeSlice);
-globalThemeSliceRegistry.register(SidebarThemeSlice);
-globalThemeSliceRegistry.register(StepperThemeSlice);
-globalThemeSliceRegistry.register(DatePickerThemeSlice);
-globalThemeSliceRegistry.register(BreadcrumbThemeSlice);
-globalThemeSliceRegistry.register(CarouselThemeSlice);
-globalThemeSliceRegistry.register(ComboboxThemeSlice);
-globalThemeSliceRegistry.register(CommandPaletteThemeSlice);
-globalThemeSliceRegistry.register(FileUploadThemeSlice);
-globalThemeSliceRegistry.register(GalleryThemeSlice);
-globalThemeSliceRegistry.register(HoverCardThemeSlice);
-globalThemeSliceRegistry.register(LabelThemeSlice);
-globalThemeSliceRegistry.register(ScrollAreaThemeSlice);
-globalThemeSliceRegistry.register(ViewerThemeSlice);
-globalThemeSliceRegistry.register(ChartThemeSlice);
+// defaultParameters/PARAMETER_DRIVEN_SLICE_IDS/the three TOOLCRIB_*_CSS
+// constants below are shared with computeServerThemeCSS (./serverThemeCSS)
+// so the two can never drift out of sync -- see that module's own header
+// comment for why computeServerThemeCSS had to move out of this ('use
+// client') file instead of just living here alongside ThemeProvider. The
+// side-effect import of ./registerThemeSlices (which ./serverThemeCSS also
+// imports independently) replaces this file's own former
+// `globalThemeSliceRegistry.register(...)` calls.
+import {
+  defaultParameters,
+  PARAMETER_DRIVEN_SLICE_IDS,
+  TOOLCRIB_TYPOGRAPHY_BASE_CSS,
+  TOOLCRIB_LINK_CSS,
+  TOOLCRIB_THEME_TRANSITIONS_CSS,
+} from './serverThemeCSS';
+import './registerThemeSlices';
 
 /** @barrelExport */
 export interface ThemeContextType {
@@ -158,30 +83,26 @@ export interface ThemeContextType {
   setDarkMode: (isDark: boolean) => void;
 }
 
-const defaultParameters: ThemeParameters & { shadowMode: ShadowMode } = {
-  // Matches presetThemes.ts's 'tailwind' preset — Tailwind CSS's blue-500
-  // (#3b82f6) converted to HSV, light mode. Not derived from that preset
-  // programmatically (see presetThemes.ts's header comment: presets are
-  // pure bundled data with no dependency on this file); kept in sync by
-  // hand, same as every preset here always has been.
-  baseColor: { h: 217, s: 76, v: 96 },
-  harmonyMode: 'analogous',
-  hueSpread: 30,
-  darkenLightenFactor: 1.0,
-  saturationFactor: 1.0,
-  paddingMode: 'normal',
-  marginMode: 'normal',
-  cornerRadiusMode: 'rounded',
-  shadowMode: 'subtle',
-  isDarkMode: false,
-};
+/**
+ * Element ids `ThemeProvider` gives the two `<style>` tags it owns —
+ * exported so `computeServerThemeCSS`'s SSR output can be rendered under
+ * the exact same ids: `injectGlobalStyle`/`upsertGlobalStyle` dedup by
+ * `getElementById(id)`, so a server-rendered `<style>` tag using these ids
+ * verbatim is recognized as already-present on hydration (no duplicate
+ * tag, and — for the responsive one — later live updates via
+ * `upsertGlobalStyle` correctly update that same tag instead of a stale
+ * copy). A consumer-chosen id would silently defeat this.
+ * @barrelExport
+ */
+export const TOOLCRIB_TYPOGRAPHY_BASE_STYLE_ID = 'toolcrib-typography-base';
+/** @barrelExport */
+export const TOOLCRIB_RESPONSIVE_STYLE_ID = 'toolcrib-responsive-theme';
 
-// These four slices are driven by `parameters`/`initialParameters` instead
-// of `sliceStates`/`initialSliceStates` -- a distinct, pre-existing
-// category (global HSV/spacing/corner-radius parameters), not a
-// per-component override slice. Excluded here, and from
-// `ToolcribSliceStateMap` (see sliceStateMap.ts), for the same reason.
-const PARAMETER_DRIVEN_SLICE_IDS = new Set(['padding', 'margin', 'radius', 'shadow']);
+/** @barrelExport */
+export const TOOLCRIB_LINK_STYLE_ID = 'toolcrib-link-base';
+
+/** @barrelExport */
+export const TOOLCRIB_THEME_TRANSITIONS_STYLE_ID = 'toolcrib-theme-transitions';
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
@@ -351,10 +272,10 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   useEffect(() => {
     const doc = targetDocument ?? document;
     if (Object.keys(responsiveInput).length === 0) {
-      removeGlobalStyle('toolcrib-responsive-theme', doc);
+      removeGlobalStyle(TOOLCRIB_RESPONSIVE_STYLE_ID, doc);
       return;
     }
-    upsertGlobalStyle('toolcrib-responsive-theme', generateResponsiveCSS(responsiveInput), doc, nonce);
+    upsertGlobalStyle(TOOLCRIB_RESPONSIVE_STYLE_ID, generateResponsiveCSS(responsiveInput), doc, nonce);
   }, [responsiveInput, targetDocument, nonce]);
 
   // `--ai-font-family`/`--ai-master-font-size`/`--ai-text-primary` above are
@@ -389,12 +310,21 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   // had zero visible effect anywhere else despite reading as a global
   // control. Ambient injection here is what actually makes it one.
   useEffect(() => {
-    injectGlobalStyle(
-      'toolcrib-typography-base',
-      `:root { font-family: var(--ai-font-family, Inter, system-ui, Avenir, Helvetica, Arial, sans-serif); font-size: var(--ai-master-font-size, 16px); line-height: var(--ai-line-height, 1.5); color: var(--ai-text-primary, #111827); }`,
-      targetDocument,
-      nonce
-    );
+    injectGlobalStyle(TOOLCRIB_TYPOGRAPHY_BASE_STYLE_ID, TOOLCRIB_TYPOGRAPHY_BASE_CSS, targetDocument, nonce);
+  }, [targetDocument, nonce]);
+
+  // See TOOLCRIB_LINK_CSS's own doc comment for why this is ambient (every
+  // plain `<a>`, not just `<Link>`) and why per-instance overrides go
+  // through a CSS custom property rather than an inline `color`.
+  useEffect(() => {
+    injectGlobalStyle(TOOLCRIB_LINK_STYLE_ID, TOOLCRIB_LINK_CSS, targetDocument, nonce);
+  }, [targetDocument, nonce]);
+
+  // See TOOLCRIB_THEME_TRANSITIONS_CSS's own doc comment for why this is
+  // safe to apply ambiently (zero-specificity selector, inline styles
+  // always win) and why it only covers color-bearing properties.
+  useEffect(() => {
+    injectGlobalStyle(TOOLCRIB_THEME_TRANSITIONS_STYLE_ID, TOOLCRIB_THEME_TRANSITIONS_CSS, targetDocument, nonce);
   }, [targetDocument, nonce]);
 
   // The sole injection point for the shared entrance/exit @keyframes
@@ -409,6 +339,13 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   // ReactDOM.createPortal).
   useEffect(() => {
     injectSharedAnimationKeyframes(targetDocument, nonce);
+  }, [targetDocument, nonce]);
+
+  // Opt-in-only decorative loop (.ai-living-accent/.ai-living-glow) — see
+  // livingColorStyles.ts's own doc comment for why this isn't ambiently
+  // applied to every element the way TOOLCRIB_THEME_TRANSITIONS_CSS is.
+  useEffect(() => {
+    injectLivingColorStyles(targetDocument, nonce);
   }, [targetDocument, nonce]);
 
   const setBaseColor = (baseColor: HSVColor) => setParameters(p => ({ ...p, baseColor }));
@@ -472,3 +409,6 @@ export const useTheme = (): ThemeContextType => {
   }
   return context;
 };
+
+// computeServerThemeCSS moved to ./serverThemeCSS -- see that module's
+// header comment for why it can't live in this ('use client') file.

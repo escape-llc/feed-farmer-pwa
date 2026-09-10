@@ -1,8 +1,10 @@
+'use client';
+
 import React, { useState, type ReactNode, type ReactElement } from 'react';
 import { AlertDialog as AlertDialogPrimitive } from 'radix-ui';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
-import { Z_INDEX } from '../../theme/zIndex';
+import { useStackedZIndex } from '../../theme/zIndexStack';
 import { AIErrorBoundary } from '../ErrorBoundary/AIErrorBoundary';
 import { useStableId } from '../shared/useStableId';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
@@ -47,7 +49,10 @@ export interface AlertDialogProps {
    */
   width?: string;
   /**
-   * Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default.
+   * Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An
+   * intentional escape hatch, not guarded against an arbitrary/conflicting
+   * value -- most consumers should never need it. See Modal's identical
+   * prop for the tie-breaking behavior when two instances share a default.
    * @default Z_INDEX.MODAL (200)
    */
   zIndex?: number;
@@ -81,10 +86,12 @@ export const AlertDialog: React.FC<AlertDialogProps> & {
   isOpen: externalIsOpen,
   onOpenChange,
   width = '25rem',
-  zIndex = Z_INDEX.MODAL,
+  zIndex: zIndexProp,
   ariaLabel = 'Confirm Action',
   overrides,
 }) => {
+  const autoZIndex = useStackedZIndex('MODAL');
+  const zIndex = zIndexProp ?? autoZIndex;
   const id = useStableId(propId, 'alertdialog');
   const targetDocument = useTargetDocument();
   useInjectInteractionStyles();
@@ -145,13 +152,14 @@ export const AlertDialog: React.FC<AlertDialogProps> & {
           }}
         >
           <AlertDialogPrimitive.Content
+            aria-modal="true"
             data-testid="alertdialog-container"
             className="ai-focus-ring"
             style={{
               background: 'var(--ai-bg-surface, #ffffff)',
               borderRadius: 'var(--ai-radius-lg, 0.75rem)',
               border: '0.0625rem solid var(--ai-border, #e5e7eb)',
-              boxShadow: '0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3)',
+              boxShadow: 'var(--ai-shadow-lg, 0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3))',
               width,
               maxWidth: '90vw',
               maxHeight: '90vh',

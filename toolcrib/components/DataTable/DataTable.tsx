@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect, type ReactNode } from 'react';
+'use client';
+
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { Checkbox as CheckboxPrimitive } from 'radix-ui';
 import { UIGroup } from '../UIGroup/UIGroup';
 import { Toolbar } from '../Toolbar/Toolbar';
@@ -11,6 +13,7 @@ import { useStableId } from '../shared/useStableId';
 import { usePagination } from '../shared/usePagination';
 import { aiBus } from '../../eventBus/eventBus';
 import { DataTableThemeSlice, type TableSliceState } from './DataTableSlice';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 /** Argument passed to a `Column.render` callback for one cell. */
 export interface CellContext<T = any> {
@@ -220,6 +223,8 @@ export interface DataTableProps<T = any> {
 /**
  * @manifest Virtualized, sortable, paginated data table with sticky headers
  * @manifestCategory Data Display
+ * @manifestAntiPatternAvoid Fake per-row emphasis via `column.render` (styling each cell individually to approximate a highlighted row), or hand-roll row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic)
+ * @manifestAntiPatternInstead Use `<DataTable rowSubtheme={(record) => ...}>` for row emphasis — classifies a row into `'error'`/`'success'`/`'warning'`/`'info'` and tints the actual row background/border, not a per-cell approximation — and `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` for selection, where the checkbox column, 3-state header checkbox, and cross-page persistence all come built in
  */
 export function DataTable<T extends Record<string, any> = Record<string, any>>({
   id: propId,
@@ -249,6 +254,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   overrides,
 }: DataTableProps<T>) {
   const id = useStableId(propId, 'datatable');
+  const strings = useLocaleStrings().dataTable;
   const { vars } = useSliceOverrides(DataTableThemeSlice, overrides);
   // Row-level borders below are set directly in JS (not through
   // --ai-table-border, which only reaches the cells' borderRight — see that
@@ -280,7 +286,16 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // writes it synchronously before calling goToPage, so it's always current
   // by the time onPageChange reads it, regardless of React's batching.
   const pageSizeRef = useRef(pageSize);
-  pageSizeRef.current = pageSize;
+  // useLayoutEffect, not a bare assignment during render -- writing to a
+  // ref during render is unsafe under React's stricter rules (a discarded/
+  // aborted render attempt could write a value that never actually
+  // commits). useLayoutEffect runs synchronously right after commit,
+  // before the browser paints or any event handler can run, which is
+  // early enough that "kept in sync every render" (this comment's own
+  // original claim) still holds by the time any event handler reads it.
+  useLayoutEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
   const [scrollTop, setScrollTop] = useState(0);
 
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -357,14 +372,31 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // throttled frame when the page/sort changed would fire after this reset,
   // calling setScrollTop with the stale pre-change offset and silently
   // undoing the reset above — reintroducing the exact blank-table bug this
-  // effect exists to prevent.
+  // exists to prevent.
+  //
+  // The scrollTop *state* reset happens during render (React's documented
+  // "adjust state when a dependency changes" pattern), not inside the effect
+  // below -- avoids an extra render-then-effect-then-rerender cascade for
+  // the state half of this reset. The effect still owns the real-DOM/RAF
+  // side effects (cancelling a pending frame, resetting the actual scroll
+  // position), which can only happen after commit regardless. Since both
+  // run synchronously within the same tick (render+commit+effects all
+  // finish before the browser's next animation frame), a still-pending rAF
+  // from the old page is cancelled before it could ever fire with a stale
+  // offset -- same ordering guarantee the original single-effect version had.
+  const paginationSortKey = `${validCurrentPage}|${pageSize}|${sortKey}|${sortDirection}`;
+  const [prevPaginationSortKey, setPrevPaginationSortKey] = useState(paginationSortKey);
+  if (paginationSortKey !== prevPaginationSortKey) {
+    setPrevPaginationSortKey(paginationSortKey);
+    setScrollTop(0);
+  }
+
   useEffect(() => {
     if (scrollRafRef.current !== null) {
       cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = null;
     }
     latestScrollTopRef.current = 0;
-    setScrollTop(0);
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [validCurrentPage, pageSize, sortKey, sortDirection]);
 
@@ -644,6 +676,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
                       }
                     }}
                     tabIndex={isSortable ? 0 : undefined}
+                    className={isSortable ? 'ai-focus-ring' : undefined}
                     aria-sort={
                       isSortable
                         ? sortKey === col.key
@@ -795,15 +828,18 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ color: 'var(--ai-text-secondary, #6b7280)' }}>
-          Showing {totalItems > 0 ? (validCurrentPage - 1) * pageSize + 1 : 0} to{' '}
-          {Math.min(validCurrentPage * pageSize, sortedData.length)} of {sortedData.length} entries
+        <div role="status" aria-live="polite" aria-atomic="true" style={{ color: 'var(--ai-text-secondary, #6b7280)' }}>
+          {strings.showingEntries(
+            totalItems > 0 ? (validCurrentPage - 1) * pageSize + 1 : 0,
+            Math.min(validCurrentPage * pageSize, sortedData.length),
+            sortedData.length
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <UIGroup>
             <select
-              aria-label="Rows per page"
+              aria-label={strings.rowsPerPage}
               value={pageSize}
               onChange={e => {
                 const newSize = Number(e.target.value);
@@ -828,7 +864,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
             >
               {pageSizeOptions.map(opt => (
                 <option key={opt} value={opt}>
-                  {opt} per page
+                  {strings.perPageOption(opt)}
                 </option>
               ))}
             </select>
@@ -836,7 +872,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
             <button
               onClick={() => paginationGoToPage(validCurrentPage - 1)}
               disabled={validCurrentPage === 1}
-              aria-label="Previous page"
+              aria-label={strings.previousPage}
               className="ai-btn"
               style={{
                 padding: 'var(--ai-padding-xs, 0.25rem 0.5rem)',
@@ -868,7 +904,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
             <button
               onClick={() => paginationGoToPage(validCurrentPage + 1)}
               disabled={validCurrentPage === totalPages}
-              aria-label="Next page"
+              aria-label={strings.nextPage}
               className="ai-btn"
               style={{
                 padding: 'var(--ai-padding-xs, 0.25rem 0.5rem)',

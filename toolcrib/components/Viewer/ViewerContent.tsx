@@ -1,9 +1,12 @@
+'use client';
+
 import React, { useEffect, useRef, useState } from 'react';
 import { aiBus } from '../../eventBus/eventBus';
 import { useStableId } from '../shared/useStableId';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
 import { type SubthemeName } from '../../theme/subtheme';
 import { ViewerThemeSlice, type ViewerSliceState } from './ViewerSlice';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 /** Data shape for each media item in a `<ViewerContent>`/`<Viewer>`. */
 export interface ViewerItem {
@@ -51,6 +54,8 @@ export interface ViewerContentProps {
 /**
  * @manifest Media viewer content — zoom/pan and prev/next navigation, no overlay chrome of its own; host it inside a `<Modal>` (see `<Viewer>`), `<Drawer>`, `<Popup>`, or directly inline, of your choosing
  * @manifestCategory Overlays
+ * @manifestAntiPatternAvoid Weld a media viewer's zoom/pan/nav content directly to one specific overlay component
+ * @manifestAntiPatternInstead Use `<ViewerContent>` on its own — zero overlay chrome of its own, host it inside `<Modal>` (`<Viewer>`), `<Drawer>`, `<Popup>`, or directly inline
  */
 export const ViewerContent: React.FC<ViewerContentProps> = ({
   id: propId,
@@ -62,6 +67,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
   overrides,
 }) => {
   const id = useStableId(propId, 'viewer');
+  const strings = useLocaleStrings().viewer;
   const { vars } = useSliceOverrides(ViewerThemeSlice, overrides);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -141,7 +147,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close viewer"
+          aria-label={strings.closeViewer}
           className="ai-btn"
           style={{
             position: 'absolute',
@@ -180,7 +186,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
           <button
             type="button"
             onClick={() => goTo(activeIndex - 1)}
-            aria-label="Previous item"
+            aria-label={strings.previousItem}
             className="ai-btn"
             style={{
               position: 'absolute',
@@ -196,7 +202,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
               border: '0.0625rem solid var(--ai-border, #d1d5db)',
               color: 'var(--ai-text-primary, #111827)',
               cursor: 'pointer',
-              boxShadow: '0 0.0625rem 0.25rem rgba(0,0,0,0.15)',
+              boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.25rem rgba(0,0,0,0.15))',
               ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
             }}
           >
@@ -207,7 +213,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
         <button
           type="button"
           onClick={() => setIsZoomed(z => !z)}
-          aria-label={isZoomed ? 'Zoom out' : 'Zoom in'}
+          aria-label={isZoomed ? strings.zoomOut : strings.zoomIn}
           aria-pressed={isZoomed}
           className="ai-btn"
           style={{
@@ -234,7 +240,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
           <button
             type="button"
             onClick={() => goTo(activeIndex + 1)}
-            aria-label="Next item"
+            aria-label={strings.nextItem}
             className="ai-btn"
             style={{
               position: 'absolute',
@@ -250,7 +256,7 @@ export const ViewerContent: React.FC<ViewerContentProps> = ({
               border: '0.0625rem solid var(--ai-border, #d1d5db)',
               color: 'var(--ai-text-primary, #111827)',
               cursor: 'pointer',
-              boxShadow: '0 0.0625rem 0.25rem rgba(0,0,0,0.15)',
+              boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.25rem rgba(0,0,0,0.15))',
               ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
             }}
           >

@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Tabs as TabsPrimitive } from 'radix-ui';
 import { aiBus } from '../../eventBus/eventBus';
@@ -180,7 +182,6 @@ export const TabStrip: React.FC<TabStripProps> & {
       {/* Connected Tab List Scroll Container using Radix Tabs.List */}
       <TabsPrimitive.List
         ref={scrollContainerRef}
-        className="ai-focus-ring"
         style={{
           display: 'flex',
           alignItems: 'center',

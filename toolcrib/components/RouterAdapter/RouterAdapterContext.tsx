@@ -1,5 +1,8 @@
+'use client';
+
 import React, { createContext, useContext, type ReactNode } from 'react';
 import { useAIEvent } from '../../eventBus/useAIEvent';
+import { isDevBuild } from '../../theme/safeProps';
 
 /**
  * Router-agnostic navigation contract. Build one of these from whatever
@@ -24,7 +27,7 @@ export interface RouterAdapterProviderProps {
  * Bridges `aiBus`'s `route:navigate` event to a real router. Mount once,
  * INSIDE your actual router's tree (wherever `useNavigate()` or its
  * equivalent is real) — not at the same level as `<ToolcribProvider>`,
- * which typically sits above the router. No `@manifest` tag, matching
+ * which typically sits above the router. Not tagged for manifest generation, matching
  * `ToolcribProvider`'s own precedent: no direct UI/DOM output, so
  * `CORE.md` prose / the router-integration worked example is the
  * documentation surface, not the generated manifest.
@@ -65,7 +68,7 @@ export function useRouterBridge(): void {
 
   useAIEvent('route:navigate', ({ to }) => {
     if (!adapter) {
-      if (process.env.NODE_ENV !== 'production') {
+      if (isDevBuild()) {
         console.warn(
           '[toolcrib] useRouterBridge(): aiBus.navigate() was called but no <RouterAdapterProvider> is mounted above this component — navigation was ignored. Wrap your router tree in <RouterAdapterProvider adapter={...}>.'
         );

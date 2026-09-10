@@ -1,3 +1,5 @@
+'use client';
+
 import React, { type ReactNode, type InputHTMLAttributes, type TextareaHTMLAttributes, type ButtonHTMLAttributes, useContext, useEffect } from 'react';
 import { Checkbox as CheckboxPrimitive, Switch as SwitchPrimitive } from 'radix-ui';
 import { useOptionalFormContext } from './FormContext';
@@ -549,7 +551,7 @@ export const Switch: React.FC<SwitchProps> = ({ name: propName, label, checked: 
               ? 'translateX(var(--ai-togglecontrol-switch-thumb-travel, 1.25rem))'
               : 'translateX(var(--ai-togglecontrol-switch-thumb-inset, 0.125rem))',
             transition: 'transform 0.2s ease',
-            boxShadow: '0 0.0625rem 0.1875rem rgba(0,0,0,0.2)',
+            boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.1875rem rgba(0,0,0,0.2))',
           }}
         />
       </SwitchPrimitive.Root>

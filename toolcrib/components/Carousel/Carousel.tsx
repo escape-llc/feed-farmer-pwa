@@ -1,10 +1,14 @@
+'use client';
+
 import React, { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import useEmblaCarousel from 'embla-carousel-react';
 import { aiBus } from '../../eventBus/eventBus';
 import { useStableId } from '../shared/useStableId';
+import { VisuallyHidden } from '../Layout/VisuallyHidden';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
 import { type SubthemeName } from '../../theme/subtheme';
 import { CarouselThemeSlice, type CarouselSliceState } from './CarouselSlice';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 /** Data shape for each slide in a `<Carousel>`. */
 export interface CarouselSlideItem {
@@ -42,6 +46,8 @@ export interface CarouselProps {
 /**
  * @manifest Swipeable slide carousel with drag/loop physics via embla-carousel-react, plus themed nav arrows and dot indicators
  * @manifestCategory Data Display
+ * @manifestAntiPatternAvoid Hand-roll swipe/drag physics, loop index math, or a `setInterval`-only slideshow for a slide viewport
+ * @manifestAntiPatternInstead Use `<Carousel>` — `embla-carousel-react` owns the drag/swipe/loop math; nav arrows and dot indicators are already themed and wired to it
  */
 export const Carousel: React.FC<CarouselProps> = ({
   id: propId,
@@ -52,6 +58,7 @@ export const Carousel: React.FC<CarouselProps> = ({
   overrides,
 }) => {
   const id = useStableId(propId, 'carousel');
+  const strings = useLocaleStrings().carousel;
   const { vars } = useSliceOverrides(CarouselThemeSlice, overrides);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop });
 
@@ -61,6 +68,7 @@ export const Carousel: React.FC<CarouselProps> = ({
   const [scrollSnaps, setScrollSnaps] = useState<number[]>([]);
 
   const previousIndexRef = useRef<number | undefined>(undefined);
+  const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
@@ -85,6 +93,12 @@ export const Carousel: React.FC<CarouselProps> = ({
       setScrollSnaps(emblaApi.scrollSnapList());
       onSelect();
     };
+    // Legitimate "read an external system's current state once, then
+    // subscribe for future changes" pattern (React's own docs explicitly
+    // sanction this shape) -- emblaApi is Embla's own instance, not
+    // something React renders, so its initial snap-list/selection can only
+    // be read once this effect actually runs, not during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setScrollSnaps(emblaApi.scrollSnapList());
     onSelect();
     emblaApi.on('select', onSelect);
@@ -101,8 +115,48 @@ export const Carousel: React.FC<CarouselProps> = ({
     return () => clearInterval(interval);
   }, [emblaApi, autoplay]);
 
+  // Hand-rolled roving tabindex + arrow-key nav for the dot tablist: unlike
+  // TabStrip/Stepper (real Radix TabsPrimitive), the dots drive Embla's own
+  // scroll-snap position rather than a Radix Tabs `value`/Content pairing,
+  // so there's no primitive to inherit this from — the WAI-ARIA APG Tablist
+  // pattern (one Tab stop, Left/Right/Home/End moves + activates) has to be
+  // implemented directly, same as Tree's hand-rolled keydown handling.
+  const onDotKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      const lastIndex = scrollSnaps.length - 1;
+      let nextIndex: number | undefined;
+      switch (event.key) {
+        case 'ArrowRight':
+          nextIndex = index < lastIndex ? index + 1 : loop ? 0 : index;
+          break;
+        case 'ArrowLeft':
+          nextIndex = index > 0 ? index - 1 : loop ? lastIndex : index;
+          break;
+        case 'Home':
+          nextIndex = 0;
+          break;
+        case 'End':
+          nextIndex = lastIndex;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      if (nextIndex === index) return;
+      emblaApi?.scrollTo(nextIndex);
+      dotRefs.current[nextIndex]?.focus();
+    },
+    [emblaApi, loop, scrollSnaps.length]
+  );
+
   return (
     <div style={{ position: 'relative', width: '100%', ...vars }}>
+      {/* Autoplay/drag/dot-click all change the visible slide with no
+          corresponding focus move -- this is the only announcement a
+          screen-reader user gets that anything changed at all. */}
+      <div aria-live="polite" aria-atomic="true">
+        <VisuallyHidden>{strings.currentSlide(selectedIndex + 1, slides.length)}</VisuallyHidden>
+      </div>
       <div ref={emblaRef} style={{ overflow: 'hidden', width: '100%' }}>
         <div style={{ display: 'flex', gap: 'var(--ai-carousel-slide-gap, 1rem)' }}>
           {slides.map(slide => (
@@ -117,7 +171,7 @@ export const Carousel: React.FC<CarouselProps> = ({
         <button
           type="button"
           onClick={() => emblaApi?.scrollPrev()}
-          aria-label="Previous slide"
+          aria-label={strings.previousSlide}
           className="ai-btn"
           style={{
             position: 'absolute',
@@ -135,7 +189,7 @@ export const Carousel: React.FC<CarouselProps> = ({
             border: '0.0625rem solid var(--ai-border, #d1d5db)',
             color: 'var(--ai-text-primary, #111827)',
             cursor: 'pointer',
-            boxShadow: '0 0.0625rem 0.25rem rgba(0,0,0,0.15)',
+            boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.25rem rgba(0,0,0,0.15))',
             ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
           }}
         >
@@ -147,7 +201,7 @@ export const Carousel: React.FC<CarouselProps> = ({
         <button
           type="button"
           onClick={() => emblaApi?.scrollNext()}
-          aria-label="Next slide"
+          aria-label={strings.nextSlide}
           className="ai-btn"
           style={{
             position: 'absolute',
@@ -165,7 +219,7 @@ export const Carousel: React.FC<CarouselProps> = ({
             border: '0.0625rem solid var(--ai-border, #d1d5db)',
             color: 'var(--ai-text-primary, #111827)',
             cursor: 'pointer',
-            boxShadow: '0 0.0625rem 0.25rem rgba(0,0,0,0.15)',
+            boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.25rem rgba(0,0,0,0.15))',
             ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
           }}
         >
@@ -176,7 +230,7 @@ export const Carousel: React.FC<CarouselProps> = ({
       {scrollSnaps.length > 1 && (
         <div
           role="tablist"
-          aria-label="Slides"
+          aria-label={strings.slidesTablist}
           style={{
             display: 'flex',
             justifyContent: 'center',
@@ -187,12 +241,17 @@ export const Carousel: React.FC<CarouselProps> = ({
           {scrollSnaps.map((_, index) => (
             <button
               key={index}
+              ref={el => {
+                dotRefs.current[index] = el;
+              }}
               type="button"
               role="tab"
+              tabIndex={index === selectedIndex ? 0 : -1}
               aria-selected={index === selectedIndex}
-              aria-label={`Go to slide ${index + 1}`}
+              aria-label={strings.goToSlide(index + 1)}
               onClick={() => emblaApi?.scrollTo(index)}
-              className="ai-btn"
+              onKeyDown={event => onDotKeyDown(event, index)}
+              className="ai-btn ai-focus-ring"
               style={{
                 width: 'var(--ai-carousel-dot-size, 0.5rem)',
                 height: 'var(--ai-carousel-dot-size, 0.5rem)',

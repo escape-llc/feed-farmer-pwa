@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useRef, useState, useEffect, type ReactNode } from 'react';
 import { aiBus } from '../../eventBus/eventBus';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
@@ -55,6 +57,8 @@ export interface FilmstripProps {
 /**
  * @manifest Horizontally-scrollable thumbnail strip with an active-item indicator, reusing TabStrip's own overflow scroll detection
  * @manifestCategory Data Display
+ * @manifestAntiPatternAvoid Build a second horizontally-scrollable-strip-with-overflow-arrows implementation for a row of media thumbnails
+ * @manifestAntiPatternInstead Use `<Filmstrip>` — shares `<TabStrip>`'s own `useScrollOverflow` hook and active-indicator theming, not a parallel implementation that can drift from it
  */
 export const Filmstrip: React.FC<FilmstripProps> = ({
   id: propId,
@@ -161,7 +165,7 @@ export const Filmstrip: React.FC<FilmstripProps> = ({
             color: 'var(--ai-text-primary, #111827)',
             cursor: 'pointer',
             fontSize: '0.75rem',
-            boxShadow: '0 0.0625rem 0.125rem rgba(0,0,0,0.05)',
+            boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.125rem rgba(0,0,0,0.05))',
             flexShrink: 0,
             zIndex: 2,
             ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
@@ -175,7 +179,6 @@ export const Filmstrip: React.FC<FilmstripProps> = ({
         ref={scrollContainerRef}
         role="listbox"
         aria-label="Filmstrip"
-        className="ai-focus-ring"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -248,7 +251,7 @@ export const Filmstrip: React.FC<FilmstripProps> = ({
             color: 'var(--ai-text-primary, #111827)',
             cursor: 'pointer',
             fontSize: '0.75rem',
-            boxShadow: '0 0.0625rem 0.125rem rgba(0,0,0,0.05)',
+            boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.125rem rgba(0,0,0,0.05))',
             flexShrink: 0,
             zIndex: 2,
             ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',

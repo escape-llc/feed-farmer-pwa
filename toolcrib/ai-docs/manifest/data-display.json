@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Per-category slice of component-manifest.json's \"components\" array (category: Data Display), for on-demand detail without loading the full manifest. See component-manifest.json for themeSystem/zIndexScale/eventBus and cross-category data.",
   "category": "Data Display",
   "components": [
@@ -160,6 +160,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll a breadcrumb trail with manual truncation/overflow logic",
+      "antiPatternInstead": "Use `<Breadcrumb>` — collapses middle items into a `<DropdownMenu>` automatically once the trail overflows its container",
       "description": "Breadcrumb trail built on React Aria Components, collapsing middle items into a `<DropdownMenu>` on overflow"
     },
     {
@@ -194,6 +196,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll swipe/drag physics, loop index math, or a `setInterval`-only slideshow for a slide viewport",
+      "antiPatternInstead": "Use `<Carousel>` — `embla-carousel-react` owns the drag/swipe/loop math; nav arrows and dot indicators are already themed and wired to it",
       "description": "Swipeable slide carousel with drag/loop physics via embla-carousel-react, plus themed nav arrows and dot indicators"
     },
     {
@@ -313,6 +317,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Fake per-row emphasis via `column.render` (styling each cell individually to approximate a highlighted row), or hand-roll row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic)",
+      "antiPatternInstead": "Use `<DataTable rowSubtheme={(record) => ...}>` for row emphasis — classifies a row into `'error'`/`'success'`/`'warning'`/`'info'` and tints the actual row background/border, not a per-cell approximation — and `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` for selection, where the checkbox column, 3-state header checkbox, and cross-page persistence all come built in",
       "description": "Virtualized, sortable, paginated data table with sticky headers"
     },
     {
@@ -366,6 +372,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Build a second horizontally-scrollable-strip-with-overflow-arrows implementation for a row of media thumbnails",
+      "antiPatternInstead": "Use `<Filmstrip>` — shares `<TabStrip>`'s own `useScrollOverflow` hook and active-indicator theming, not a parallel implementation that can drift from it",
       "description": "Horizontally-scrollable thumbnail strip with an active-item indicator, reusing TabStrip's own overflow scroll detection"
     },
     {
@@ -396,6 +404,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Build a second lazy-render/`IntersectionObserver` mechanism for a grid of many thumbnails",
+      "antiPatternInstead": "Use `<Gallery>` — thumbnails defer via the existing `<DeferredContent>`, not a new visibility mechanism",
       "description": "Thumbnail grid with lazy-rendered items, opening a fullscreen Viewer by default"
     },
     {
@@ -485,6 +495,25 @@
       },
       "category": "Data Display",
       "description": "Multi-series line chart with a shared hover crosshair; `variant=\"area\"` renders a stacked, filled area chart"
+    },
+    {
+      "name": "Link",
+      "import": "import { Link } from '#toolcrib'",
+      "props": {
+        "variant": {
+          "type": "'primary' | 'secondary'",
+          "default": "'primary'",
+          "description": "Identity color from the harmony palette, used for both the unvisited\nand (nudged) visited text color — matches whichever brand hue `variant`\non `<Button>`/`<Badge>` already resolves to, so a link reads as part of\nthe same themed surface rather than a fixed, independent color.\nIgnored if `subtheme` is set."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour instead (e.g. a destructive \"Delete account\"\nlink). Wins over `variant` if both are set. Unlike `variant`, uses the\nsame resolved color for both unvisited and visited state — a status\ncolored link's meaning doesn't change once visited the way an ordinary\nnavigational link's does."
+        }
+      },
+      "category": "Data Display",
+      "antiPatternAvoid": "Hardcode a link's color (or leave it unthemed), or write `<a target=\"_blank\">` without also setting `rel=\"noopener noreferrer\"` (reverse-tabnabbing — the opened page gets `window.opener` and can navigate your tab)",
+      "antiPatternInstead": "Use `<Link>` — colors itself from `--ai-color-primary-readable`/`-secondary-readable` (hue preserved, contrast-checked) for link/visited state, and supplies the safe `rel` default automatically",
+      "description": "Themed hyperlink — colors itself from the theme's identity palette (hue-preserving, WCAG AA against the page background) for both unvisited and `:visited` state, and auto-applies `rel=\"noopener noreferrer\"` when `target=\"_blank\"`"
     },
     {
       "name": "PieChart",
@@ -605,6 +634,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll a pulsing/shimmering loading placeholder `<div>` for content that hasn't loaded yet",
+      "antiPatternInstead": "Use `<Skeleton shape=\"text\"|\"circle\"|\"rect\">` — already animates off the shared keyframes, not a one-off duration",
       "description": "Shimmering loading placeholder in text/circle/rect shapes"
     },
     {
@@ -650,6 +681,8 @@
         }
       },
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll a spinning-border `<div>` for indeterminate loading",
+      "antiPatternInstead": "Use `<Spinner>` — already animates off the shared keyframes, not a one-off duration",
       "description": "Indeterminate circular loading indicator, same subtheme colouring as `<Progress>`"
     },
     {
@@ -685,6 +718,8 @@
       },
       "constraints": "Forward navigation past a step with `formId` set is blocked until that step's `<Form>` reports `isValid: true`",
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll a multi-step wizard with `useState` for the active step and manual \"can I advance\" checks",
+      "antiPatternInstead": "Use `<Stepper>` — built on the same Radix Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId`",
       "description": "Linear step wizard built on the same Radix Tabs primitive as `<TabStrip>`, with per-step Form validation gating"
     },
     {
@@ -784,6 +819,8 @@
       },
       "constraints": "Rendered as a flat, single-level DOM list with `aria-level`/`aria-setsize`/`aria-posinset` conveying hierarchy (not nested `role=\"group\"` elements) — a WAI-ARIA-APG-accepted alternative that keeps each visible row independently wrappable in `<DeferredContent>` for large trees",
       "category": "Data Display",
+      "antiPatternAvoid": "Hand-roll a nested list's expand/collapse with `useState` per node, or a custom keydown handler for arrow-key navigation",
+      "antiPatternInstead": "Use `<Tree>` — full WAI-ARIA Treeview keyboard nav (arrows, Home/End, type-ahead) and `aria-expanded`/`aria-level`/`aria-selected` come for free",
       "description": "Data-driven tree view with expand/collapse, single selection, and full WAI-ARIA Treeview keyboard navigation"
     }
   ],

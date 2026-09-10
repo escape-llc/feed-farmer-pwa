@@ -1,3 +1,5 @@
+'use client';
+
 import React, { type ReactNode, useContext } from 'react';
 import {
   TimeField as AriaTimeField,
@@ -63,6 +65,8 @@ export interface TimeFieldProps {
 /**
  * @manifest Segmented time input (hour/minute/second, individually keyboard-editable) built on React Aria Components
  * @manifestCategory Form Controls
+ * @manifestAntiPatternAvoid Hand-roll a segmented time input (separate hour/minute/second `<input>`s with manual tab-order and validation)
+ * @manifestAntiPatternInstead Use `<TimeField>` with an `@internationalized/date` `Time` value — individually keyboard-editable segments come for free
  */
 export const TimeField: React.FC<TimeFieldProps> = ({
   name: propName,
@@ -85,7 +89,23 @@ export const TimeField: React.FC<TimeFieldProps> = ({
 
   const formValue: Time | null | undefined =
     fieldName && formContext ? (formContext.values[fieldName] as Time | null | undefined) : undefined;
-  const resolvedValue = externalValue !== undefined ? externalValue : formValue !== undefined ? formValue : defaultValue;
+  // Controlled only when there's a *live* value source that actually
+  // re-feeds the field on every render (an explicit `value` prop, or a
+  // real Form ancestor whose own state updates via setFieldValue) --
+  // never merely because `defaultValue` was set. React Aria's own
+  // useControlledState decides controlled-vs-uncontrolled by whether
+  // `value` is non-undefined, checked fresh every render, not by whether
+  // it was ever non-undefined once -- so folding `defaultValue` into that
+  // same `value` prop (the previous behavior) made the field *look*
+  // controlled from the first render on, with nothing ever feeding a new
+  // value back down after an edit. Confirmed as the real cause of a live
+  // bug: a standalone `<TimeField defaultValue={...} />` with no Form
+  // ancestor could never be edited via the keyboard at all -- every
+  // keystroke's internal update was silently discarded because the
+  // `value` prop snapped straight back to the same constant `defaultValue`
+  // object on the very next render.
+  const isControlled = externalValue !== undefined || !!(fieldName && formContext);
+  const controlledValue = externalValue !== undefined ? externalValue : formValue !== undefined ? formValue : defaultValue;
 
   const handleChange = (val: Time | null) => {
     if (fieldName && formContext) {
@@ -99,7 +119,7 @@ export const TimeField: React.FC<TimeFieldProps> = ({
   return (
     <I18nProvider locale={locale}>
       <AriaTimeField
-        value={resolvedValue ?? undefined}
+        {...(isControlled ? { value: controlledValue ?? null } : { defaultValue: defaultValue ?? undefined })}
         onChange={handleChange}
         granularity={granularity}
         hourCycle={hourCycle}

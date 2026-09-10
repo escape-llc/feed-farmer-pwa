@@ -10,7 +10,9 @@ If the codebase (or the person driving the session) already thinks in Tailwind's
 
 > **Two documents, two different jobs — load both.** This file is the source of truth for **rules, conventions, and behavior**: what's forbidden, why, and how the pieces fit together. **`component-manifest.json`** is the source of truth for **exact, enumerable data**: every component's full prop list with types/defaults/required flags, the complete `--ai-*` CSS variable list, the full event-channel/payload table, and the z-index scale. It's generated directly from source (`scripts/generate-manifest.js`) and kept in sync by a CI check — so it cannot go stale the way hand-maintained prose can. Where this file gives you a short pointer instead of a full table, that's intentional: **consult the manifest, don't guess or recall from memory.**
 
-> **Reading strategy for the Component Reference (§4) and the manifest.** §4's table already gives you every component's name, slots, and prop *names* — enough to pick the right component and call it correctly by convention. Read `component-manifest.json` (or its per-category split, next) only when §4 doesn't tell you enough: exact prop types, `@default` values, `required` flags, or slot-prop shapes. When you do, prefer the split file under `ai-docs/manifest/<category-slug>.json` for the category you're working in (e.g. `ai-docs/manifest/data-display.json` for `<DataTable>`) — same content as that category in `component-manifest.json`, a fraction of the size. `component-manifest.json` itself remains the single source of truth for the non-component-specific data (`themeSystem`, `zIndexScale`, `eventBus`) and for anything spanning more than one category at once. Worked examples for mechanisms with no prior in ordinary React/Radix training data — `overrides`+`StyleDomain` composition, the event bus's sticky-replay semantics, the z-index scale — live under `ai-docs/examples/`; read the relevant one before touching one of those mechanisms for the first time in a session.
+> **Reading strategy for the Component Reference (§5) and the manifest.** §5's table already gives you every component's name, slots, and prop *names* — enough to pick the right component and call it correctly by convention. Read `component-manifest.json` (or its per-category split, next) only when §5 doesn't tell you enough: exact prop types, `@default` values, `required` flags, or slot-prop shapes. When you do, prefer the split file under `ai-docs/manifest/<category-slug>.json` for the category you're working in (e.g. `ai-docs/manifest/data-display.json` for `<DataTable>`) — same content as that category in `component-manifest.json`, a fraction of the size. `component-manifest.json` itself remains the single source of truth for the non-component-specific data (`themeSystem`, `zIndexScale`, `eventBus`) and for anything spanning more than one category at once. Worked examples for mechanisms with no prior in ordinary React/Radix training data — `overrides`+`StyleDomain` composition, the event bus's sticky-replay semantics, the z-index scale, translating a design brief directly into `ThemeParameters` — live under `ai-docs/examples/`; read the relevant one before touching one of those mechanisms for the first time in a session.
+
+> **If `toolcrib-mcp` tools are available, prefer them.** If tools like `list_components`, `get_component`, or `search_components` are visible in your current tool set, use them instead of reading `component-manifest.json`/`ai-docs/manifest/*.json` directly — same underlying data, kept current with whatever's actually vendored in this project, plus real fuzzy search. The file-based reading strategy above is the fallback for when they aren't available, which is still the default unless this project has explicitly installed and configured `toolcrib-mcp`.
 
 > **Import path.** After `toolcrib init` / `toolcrib apply`, the toolkit is vendored into `./toolcrib/` and wired to the `#toolcrib` subpath import via your `package.json`'s `"imports"` field — never `from 'toolcrib'` or a relative path. This is the one specifier that works identically from any file in your project, regardless of location or bundler:
 > ```tsx
@@ -37,7 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 ```
 
-`ToolcribProvider` composes `ThemeProvider` > `ToastProvider` > your app + `ToastContainer`, in the one correct nesting order, so there's no separate `ToastContainer` to remember and no ordering to get wrong. (Omitting it used to be a common silent failure with manual wiring: `aiBus.showToast()` / `addToast()` still updated state and emitted bus events, but nothing appeared on screen.) Its own `theme`/`toast` props pass straight through to the underlying providers — `theme` takes everything `ThemeProvider` itself accepts (`initialParameters`, `initialSliceStates`, `targetDocument`), `toast` takes everything `ToastProvider` accepts (`defaultAnchor`).
+`ToolcribProvider` composes `ThemeProvider` > `ToastProvider` > `LocaleProvider` > your app + `ToastContainer`, in the one correct nesting order, so there's no separate `ToastContainer` to remember and no ordering to get wrong. (Omitting it used to be a common silent failure with manual wiring: `aiBus.showToast()` / `addToast()` still updated state and emitted bus events, but nothing appeared on screen.) Its own `theme`/`toast`/`strings` props pass straight through to the underlying providers — `theme` takes everything `ThemeProvider` itself accepts (`initialParameters`, `initialSliceStates`, `targetDocument`), `toast` takes everything `ToastProvider` accepts (`defaultAnchor`), `strings` takes a `LocaleStringsOverride` (see below).
 
 For advanced composition — interleaving with a Router, Redux, or an Auth context at a specific nesting depth — `ThemeProvider`, `ToastProvider`, and `ToastContainer` are still individually exported and can be wired by hand in whatever order your app needs:
 
@@ -52,13 +54,29 @@ import { ThemeProvider, ToastProvider, ToastContainer } from '#toolcrib';
 </ThemeProvider>
 ```
 
-`ThemeProvider` injects the HSV-derived CSS variables at `:root` on mount — nothing themed will render correctly without it. `ToastProvider` + `ToastContainer` are independent of `ThemeProvider` but must both be present together (the provider holds state; the container renders it).
+`ThemeProvider` injects the HSV-derived CSS variables at `:root` on mount — nothing themed will render correctly without it. `ToastProvider` + `ToastContainer` are independent of `ThemeProvider` but must both be present together (the provider holds state; the container renders it). That injection is client-only, so a server-rendered page (Next.js, Remix) flashes unthemed content until hydration — `computeServerThemeCSS()` computes the same CSS as plain text for your own SSR framework to render synchronously instead. See `ai-docs/examples/ssr-theme-injection.md` for the full pattern, including which element ids matter for hydration to recognize it without duplicating.
 
 For triggering navigation from anywhere in the tree via `aiBus.navigate()` — a `CommandPalette` item, a toast action, a modal confirm handler — mount `<RouterAdapterProvider adapter={...}>` once inside your actual router's tree (supplying `navigate` from whatever router library you use) and call `useRouterBridge()` once beneath it. See `ai-docs/examples/router-integration.md` for the full pattern, including controlled-overlay and `TabStrip` URL-sync approaches that don't need the event bus at all.
 
+`<LocaleProvider strings={...}>` batch-overrides every localizable UI chrome string (`Pagination`'s "Previous page", `Tree`'s root `aria-label`, and others) in one place — pass it directly to `ToolcribProvider`'s own `strings` prop, or mount `<LocaleProvider>` standalone for advanced composition. Optional and graceful like `RouterAdapterProvider`, not required-and-throws like `ThemeProvider`: every string already has a harmless English default, so not mounting it changes nothing. Distinct from `<Calendar>`'s own `locale` prop (a BCP 47 tag for real date-name localization, untouched by this). See `ai-docs/examples/locale-provider.md`.
+
+`aiBus.requireAuth(reason?)` announces that the current session/request is unauthorized (an API 401, a token expiry) from wherever that check actually happens, without prop-drilling a callback down to it — a persistently-mounted listener elsewhere in the tree decides what "unauthorized" means for your app. See `ai-docs/examples/auth-unauthorized.md`. `aiBus.on('*', ...)` (the wildcard subscriber every event already passes through) is the same shape of mechanism generalized to forwarding toolcrib's whole event vocabulary to an analytics/telemetry pipeline — see `ai-docs/examples/wildcard-event-monitoring.md`.
+
 ---
 
-## 2. Core Principles
+## 2. Recommended Complementary Packages
+
+Router/auth/analytics above (§1) work through a library-agnostic adapter, so toolcrib never has to pick one. The table below is different in kind — a concern with no adapter shape possible, where the pick genuinely matters and this list exists to keep an agent from picking a different one on every project. Deliberately short: an entry only belongs here if there's no adapter that could sidestep the choice instead, and the recommendation is close to a real consensus pick, not a preference call. None of these are added to toolcrib's own dependencies by installing it — they're guidance for your project, not something `toolcrib init` vendors or wires in.
+
+| Need | Recommended | Why |
+|---|---|---|
+| App-level shared state (not cross-component UI signaling — that's `aiBus`, see §11) | [Zustand](https://github.com/pmndrs/zustand) | Small, hooks-based, no provider ceremony — the closest thing to a consensus pick in this space, and what an AI agent already reaches for by training-data prior more often than not. |
+| Unit tests | [Vitest](https://vitest.dev/) | What toolcrib's own component suite runs on (Vite-native, fast) — pairs naturally with a Vite-based project, and is the framework toolcrib's own separately-shipped, opt-in test files are written against. |
+| Linting | [ESLint](https://eslint.org/) (flat config) | Required to actually run the vendored rules in `eslint-rules/` (`no-unexplained-zindex`, `no-computed-prop-before-spread`, `no-missing-use-client`, `no-frozen-controlled-prop`) — see that directory's own `README.md` for wiring instructions. |
+
+---
+
+## 3. Core Principles
 
 1. **NO Prop-Drilling.** Use slot subcomponents (e.g. `<Card.Header>`, `<Modal.Actions>`) and React contexts.
 2. **Cross-Tree Actions via Event Bus — for components with no direct ancestor/descendant relationship.** Trigger overlays, toasts, and form actions from anywhere:
@@ -79,7 +97,7 @@ For triggering navigation from anywhere in the tree via `aiBus.navigate()` — a
    ```
 5. **HSV Colour Space Only.** No RGB. All colours derive from CSS variables injected at `:root`.
 6. **`layout="auto"` for Flex Filling.** Set `layout="auto"` on `<Card>` (and `<Card.Content>`) to enable flex-fill behaviour inside Splitters and other flex containers. This also activates automatic corner-squaring.
-7. **NO `style`/`className` on Toolcrib Components — one deliberate exception.** No component in this toolkit accepts either prop, enforced by the type system, not just convention — use `overrides` for per-instance theme control (§9) instead of ad hoc inline styles. The one exception is `<Block>`: a themed, stylable `<div>` for ad-hoc container/layout needs no curated component's own prop surface covers — its own `background`/`padding`/`radius`/`border` props default to theme CSS variables, so it doesn't fall back to un-themed raw styling. This doesn't preclude a genuinely plain `<div>` either — `style`/`className` always work normally on your own plain HTML elements (`<div>`, `<span>`, ...), theme-aware or not; `<Block>` is there for when the theme-aware defaults are actually what you want, not a replacement for every raw `<div>`. The restriction in this principle is specifically every other toolkit component's own API surface.
+7. **NO `style`/`className` on Toolcrib Components — one deliberate exception.** No component in this toolkit accepts either prop, enforced by the type system, not just convention — use `overrides` for per-instance theme control (§10) instead of ad hoc inline styles. The one exception is `<Block>`: a themed, stylable `<div>` for ad-hoc container/layout needs no curated component's own prop surface covers — its own `background`/`padding`/`radius`/`border` props default to theme CSS variables, so it doesn't fall back to un-themed raw styling. This doesn't preclude a genuinely plain `<div>` either — `style`/`className` always work normally on your own plain HTML elements (`<div>`, `<span>`, ...), theme-aware or not; `<Block>` is there for when the theme-aware defaults are actually what you want, not a replacement for every raw `<div>`. The restriction in this principle is specifically every other toolkit component's own API surface.
 8. **Responsive Breakpoints — a fixed `sm`/`md`/`lg`/`xl` scale, global per theme setting, not per-instance classes.** `paddingMode`/`marginMode`/`cornerRadiusMode` on `<ThemeProvider initialParameters={{...}}>` each accept a `{ base, sm?, md?, lg?, xl? }` object in place of a plain mode string — `base` is the unconditional value (also what SSR/first paint uses), and each breakpoint key generates its own `@media (min-width: ...)` block:
    ```tsx
    <ThemeProvider initialParameters={{ paddingMode: { base: 'compact', md: 'normal', lg: 'spacious' } }}>
@@ -90,40 +108,44 @@ For triggering navigation from anywhere in the tree via `aiBus.navigate()` — a
 
 ---
 
-## 3. ⛔ Anti-Patterns — DO NOT Generate These
+## 4. ⛔ Anti-Patterns — DO NOT Generate These
 
 | ❌ Don't | ✅ Do Instead |
 |:---|:---|
 | Manually wire `<ThemeProvider>` + `<ToastProvider>` + `<ToastContainer>` at the app root | Use `<ToolcribProvider>` — composes all three in the correct order, so there's no separate `<ToastContainer>` to forget (see §1) |
-| Hand-roll page-index math (clamping, prev/next, page-size resets) | Use `<Pagination>` — same controlled/uncontrolled `page`/`defaultPage`/`onPageChange` contract as `<DataTable>`'s own paging |
-| Manually manage overlay open/close with `useState` | Let `<Modal>`, `<Drawer>`, `<Popup>` manage state internally, or use `aiBus.openModal(id)` |
+| Manually manage overlay open/close with `useState`, create custom popup/modal/drawer components, or use `position: fixed` with manual z-index | Let `<Modal>`, `<Drawer>`, `<Popup>` manage state internally (or use `aiBus.openModal(id)`) — they portal correctly, handle focus traps/backdrop/light dismiss, and already use the `Z_INDEX` scale |
 | Hardcode `z-index` values | Use the `Z_INDEX` scale: `import { Z_INDEX } from '#toolcrib'` |
 | Use `px` units for spacing, borders, radii | Use `rem` values. Only `--ai-master-font-size` is in `px` |
 | Hardcode colour values (hex, rgb) | Use CSS variables: `var(--ai-color-primary)`, `var(--ai-subtheme-error)` |
 | Prop-drill callbacks through component trees | Use `aiBus.emit()` / `useAIEvent()` for cross-tree communication |
-| Write `register()` or `onChange` boilerplate for form fields | Nest `<Input>`, `<Select>`, etc. inside `<FormField name="...">` — binding is automatic |
-| Create custom popup/modal/drawer components | Use the toolkit's `<Popup>`, `<Modal>`, `<Drawer>` — they handle anchoring, focus traps, backdrop, and light dismiss |
-| Use `position: fixed` with manual z-index | Use the overlay components — they portal correctly and use the Z_INDEX scale |
-| Pass `style={{...}}` or `className="..."` to a toolcrib component | Use that component's `overrides` prop (§9) if it has theme-controlled axes; if what you need genuinely isn't one of them, a plain `<div>` is still fine — `<Block>` is the same escape hatch with theme-aware background/padding/radius/border defaults, worth reaching for when that awareness is what you actually want |
-| Fake per-row emphasis in `<DataTable>` via `column.render` (styling each cell individually to approximate a highlighted row) | Use `<DataTable rowSubtheme={(record) => ...}>` — classifies a row into `'error'` / `'success'` / `'warning'` / `'info'` and tints the actual row background/border, not a per-cell approximation |
-| Hand-roll a pulsing/shimmering loading placeholder `<div>`, or a spinning-border `<div>` for indeterminate loading | Use `<Skeleton shape="text"\|"circle"\|"rect">` and `<Spinner>` — both already animate off the shared keyframes, not a one-off duration |
-| Hand-roll a nested list's expand/collapse with `useState` per node, or a custom keydown handler for arrow-key navigation | Use `<Tree>` — full WAI-ARIA Treeview keyboard nav (arrows, Home/End, type-ahead) and `aria-expanded`/`aria-level`/`aria-selected` come for free |
-| Build a row of clickable star `<span>`s with manual hover/click state for a rating input | Use `<Rating>` — built on Radix `RadioGroup`, inherits real keyboard operability and `aria-checked` semantics instead of approximating them |
-| Hand-roll a left/right nav rail with a raw `<nav>`/`<ul>` and manual active-link state | Use `<AppShell layout="sidebar-left"\|"sidebar-right">` + `<AppShell.Sidebar>` + `<Sidebar>` — active-item, icon-only collapse, and the correct divider border side all come for free |
-| Hand-roll a multi-step wizard with `useState` for the active step and manual "can I advance" checks | Use `<Stepper>` — built on the same Radix Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId` |
-| Hand-roll `<DataTable>` row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic) | Use `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` — the checkbox column, 3-state header checkbox, and cross-page persistence all come built in |
-| Hand-roll date-picker calendar math, or pass a raw JS `Date` into `<DatePicker>`/`<Calendar>`/`<TimeField>` | Use `<DatePicker>`/`<Calendar>`/`<TimeField>` with `@internationalized/date` values (`CalendarDate`/`Time`) — timezone/DST/locale correctness is exactly what that dependency exists to guarantee |
+| Pass `style={{...}}` or `className="..."` to a toolcrib component | Use that component's `overrides` prop (§10) if it has theme-controlled axes; if what you need genuinely isn't one of them, a plain `<div>` is still fine — `<Block>` is the same escape hatch with theme-aware background/padding/radius/border defaults |
+| Hand-roll a full-viewport app layout frame with header/sidebar/main regions and manual sidebar-collapse state | Use `<AppShell layout="sidebar-left"|"sidebar-right">` + `<AppShell.Sidebar>` — icon-only collapse and the correct divider border side come for free |
 | Hand-roll a breadcrumb trail with manual truncation/overflow logic | Use `<Breadcrumb>` — collapses middle items into a `<DropdownMenu>` automatically once the trail overflows its container |
+| Hand-roll month-grid calendar math (day-of-week offsets, leap years, month-length edge cases) | Use `<Calendar>` with `@internationalized/date` values — timezone/DST/locale correctness is exactly what that dependency exists to guarantee |
+| Hand-roll swipe/drag physics, loop index math, or a `setInterval`-only slideshow for a slide viewport | Use `<Carousel>` — `embla-carousel-react` owns the drag/swipe/loop math; nav arrows and dot indicators are already themed and wired to it |
 | Hand-roll a fuzzy-searchable command launcher with a raw `<input>` and manual filtering, or wire your own global `Cmd/Ctrl+K` listener | Use `<CommandPalette items={...}>` — fuzzy filter, grouping, and the global shortcut are wired in automatically once mounted; triggerable from anywhere via `aiBus.openCommandPalette(id)` |
+| Fake per-row emphasis via `column.render` (styling each cell individually to approximate a highlighted row), or hand-roll row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic) | Use `<DataTable rowSubtheme={(record) => ...}>` for row emphasis — classifies a row into `'error'`/`'success'`/`'warning'`/`'info'` and tints the actual row background/border, not a per-cell approximation — and `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` for selection, where the checkbox column, 3-state header checkbox, and cross-page persistence all come built in |
+| Hand-roll a date-field + calendar popover, or pass a raw JS `Date` into a custom date input | Use `<DatePicker>` with an `@internationalized/date` `CalendarDate` value — timezone/DST/locale correctness is exactly what that dependency exists to guarantee |
 | Build a second horizontally-scrollable-strip-with-overflow-arrows implementation for a row of media thumbnails | Use `<Filmstrip>` — shares `<TabStrip>`'s own `useScrollOverflow` hook and active-indicator theming, not a parallel implementation that can drift from it |
+| Write `register()` or `onChange` boilerplate for form fields | Nest `<Input>`, `<Select>`, etc. inside `<FormField name="...">` — binding is automatic |
+| Build a second lazy-render/`IntersectionObserver` mechanism for a grid of many thumbnails | Use `<Gallery>` — thumbnails defer via the existing `<DeferredContent>`, not a new visibility mechanism |
+| Hardcode a link's color (or leave it unthemed), or write `<a target="_blank">` without also setting `rel="noopener noreferrer"` (reverse-tabnabbing — the opened page gets `window.opener` and can navigate your tab) | Use `<Link>` — colors itself from `--ai-color-primary-readable`/`-secondary-readable` (hue preserved, contrast-checked) for link/visited state, and supplies the safe `rel` default automatically |
+| Hand-roll page-index math (clamping, prev/next, page-size resets) | Use `<Pagination>` — same controlled/uncontrolled `page`/`defaultPage`/`onPageChange` contract as `<DataTable>`'s own paging |
+| Build a row of clickable star `<span>`s with manual hover/click state for a rating input | Use `<Rating>` — built on Radix `RadioGroup`, inherits real keyboard operability and `aria-checked` semantics instead of approximating them |
+| Hand-roll a left/right nav rail with a raw `<nav>`/`<ul>` and manual active-link state | Use `<Sidebar>` (inside `<AppShell.Sidebar>`) — active-item tracking and the correct icon-only collapsed rendering come for free |
+| Hand-roll a pulsing/shimmering loading placeholder `<div>` for content that hasn't loaded yet | Use `<Skeleton shape="text"|"circle"|"rect">` — already animates off the shared keyframes, not a one-off duration |
+| Hand-roll a spinning-border `<div>` for indeterminate loading | Use `<Spinner>` — already animates off the shared keyframes, not a one-off duration |
+| Hand-roll a multi-step wizard with `useState` for the active step and manual "can I advance" checks | Use `<Stepper>` — built on the same Radix Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId` |
+| Hand-roll a segmented time input (separate hour/minute/second `<input>`s with manual tab-order and validation) | Use `<TimeField>` with an `@internationalized/date` `Time` value — individually keyboard-editable segments come for free |
+| Hand-roll a nested list's expand/collapse with `useState` per node, or a custom keydown handler for arrow-key navigation | Use `<Tree>` — full WAI-ARIA Treeview keyboard nav (arrows, Home/End, type-ahead) and `aria-expanded`/`aria-level`/`aria-selected` come for free |
 | Build a bespoke fullscreen image lightbox, independent of `<Modal>` | Use `<Viewer>` — composes `<ViewerContent>` inside `<Modal>` automatically; nested inside another `<Modal>`, Escape closes only the `<Viewer>`, not the parent |
 | Weld a media viewer's zoom/pan/nav content directly to one specific overlay component | Use `<ViewerContent>` on its own — zero overlay chrome of its own, host it inside `<Modal>` (`<Viewer>`), `<Drawer>`, `<Popup>`, or directly inline |
-| Build a second lazy-render/`IntersectionObserver` mechanism for a grid of many thumbnails | Use `<Gallery>` — thumbnails defer via the existing `<DeferredContent>`, not a new visibility mechanism |
-| Hand-roll swipe/drag physics, loop index math, or a `setInterval`-only slideshow for a slide viewport | Use `<Carousel>` — `embla-carousel-react` owns the drag/swipe/loop math; nav arrows and dot indicators are already themed and wired to it |
+
+**Security note — URL-accepting props:** `Breadcrumb`, `Sidebar`, `Avatar`, `Gallery`, and `Viewer`/`ViewerContent` all render a caller-supplied `href`/`src` value as-is, exactly like a plain `<a href>`/`<img src>` — none of them validate or strip the URL scheme. If that value can ever originate from another user's input (a stored profile link, an uploaded file's URL) rather than your own static config, sanitize/allow-list the scheme yourself (reject `javascript:`, `data:`, etc.) before it reaches the prop. This is the same responsibility every `<a href>`/`<img src>` already carries in a plain React app, not something a toolcrib component does differently or is expected to guard for you.
 
 ---
 
-## 4. Component Reference
+## 5. Component Reference
 
 Generated from `component-manifest.json` (`@manifestCategory`-grouped) — **Props** lists every prop name, not full types/defaults/descriptions; consult `component-manifest.json` or its per-category split under `ai-docs/manifest/` (see the callout above) for those. **Slots** are compound sub-components (`Card.Header`, etc.), `—` if none.
 
@@ -196,6 +218,7 @@ Full prop detail: `ai-docs/manifest/data-display.json`
 | `<Gallery>` | — | `id`, `items`, `columns`, `onItemClick`, `overrides` | Thumbnail grid with lazy-rendered items, opening a fullscreen Viewer by default |
 | `<Heatmap>` | — | `columns`, `rows`, `values`, `width`, `height`, `title`, `formatValue` | Row/column magnitude grid with a theme-tracking sequential ramp |
 | `<LineChart>` | — | `categories`, `series`, `width`, `height`, `title`, `variant`, `legendPosition`, `overrides` | Multi-series line chart with a shared hover crosshair; `variant="area"` renders a stacked, filled area chart |
+| `<Link>` | — | `variant`, `subtheme` | Themed hyperlink — colors itself from the theme's identity palette (hue-preserving, WCAG AA against the page background) for both unvisited and `:visited` state, and auto-applies `rel="noopener noreferrer"` when `target="_blank"` |
 | `<PieChart>` | — | `data`, `width`, `height`, `innerRadius`, `title`, `legendPosition` | Part-to-whole pie or donut chart |
 | `<Progress>` | — | `id`, `value`, `max`, `size`, `subtheme`, `overrides` | Determinate progress bar |
 | `<ScaleLegend>` | — | `min`, `max`, `formatValue`, `width` | Gradient legend for a sequential (magnitude) color-encoded chart |
@@ -260,7 +283,7 @@ addToast({
 
 ---
 
-## 5. `layout="auto"` — Fill & Corner-Squaring
+## 6. `layout="auto"` — Fill & Corner-Squaring
 
 When a `<Card>` is placed inside a flex container (like a `<Splitter>` panel), set `layout="auto"` to make it fill available space and automatically square its corners adjacent to the splitter handle:
 
@@ -287,7 +310,7 @@ When a `<Card>` is placed inside a flex container (like a `<Splitter>` panel), s
 
 ---
 
-## 6. Z-Index Scale
+## 7. Z-Index Scale
 
 **Always import `Z_INDEX` from `#toolcrib`.** Never hardcode z-index values.
 
@@ -304,7 +327,7 @@ When a `<Card>` is placed inside a flex container (like a `<Splitter>` panel), s
 
 ---
 
-## 7. CSS Variable Theme System (HSV-Derived)
+## 8. CSS Variable Theme System (HSV-Derived)
 
 All colours are controlled by CSS variables injected at `:root` by `<ThemeProvider>`:
 
@@ -327,14 +350,14 @@ The full list (96 variables and counting) lives in `component-manifest.json`'s `
 
 ---
 
-## 8. Theme Slices
+## 9. Theme Slices
 
 The theme system is extensible via **slices**. Each slice provides:
 - A state interface
 - CSS variable generation from that state
 - An optional editor control for the Theme Editor
 
-Built-in slices: `padding`, `margin`, `radius`, `shadow`, `table`, `animation`, `tab`, `drawer`, `accordion`, `card`, `tooltip`, `button`, `input`, `togglecontrol`, `select`, `radiogroup`, `slider`, `modal`, `alertdialog`, `popup`, `toast`, `dropdownmenu`, `contextmenu`, `progress`, `separator`, `avatar`, `toggle`, `collapsible`, `uigroup`, `toolbar`, `appshell`, `typography`, `tree`, `rating`, `sidebar`, `stepper`, `datepicker`, `breadcrumb`, `carousel`, `combobox`, `commandpalette`, `fileUpload`, `gallery`, `hoverCard`, `label`, `scrollArea`, `viewer`, `chart`.
+Built-in slices: `padding`, `margin`, `radius`, `shadow`, `table`, `animation`, `tab`, `drawer`, `accordion`, `card`, `tooltip`, `button`, `input`, `togglecontrol`, `select`, `radiogroup`, `slider`, `modal`, `alertdialog`, `popup`, `toast`, `dropdownmenu`, `contextmenu`, `progress`, `separator`, `avatar`, `toggle`, `collapsible`, `uigroup`, `toolbar`, `appshell`, `typography`, `tree`, `rating`, `sidebar`, `stepper`, `datepicker`, `breadcrumb`, `carousel`, `combobox`, `commandpalette`, `fileUpload`, `gallery`, `hoverCard`, `label`, `scrollArea`, `viewer`, `chart`, `livingColor`.
 
 Register custom slices:
 ```tsx
@@ -354,7 +377,7 @@ globalThemeSliceRegistry.register(MySlice);
 
 ---
 
-## 9. Per-Instance Overrides & Style Domains
+## 10. Per-Instance Overrides & Style Domains
 
 A component with theme-controlled visual axes exposes them through an `overrides` prop instead of `style` — a typed, sparse patch applied only to that one instance, layered on top of (never replacing) the global Theme Editor state:
 
@@ -386,18 +409,18 @@ import { StyleDomainProvider } from '#toolcrib';
 
 This is Context-based on purpose, not CSS-variable inheritance — `<Modal>`, `<Popup>`, and `<Drawer>` all render their content through a portal elsewhere in the DOM, and `<StyleDomainProvider>` still reaches them correctly because it follows the component tree, not DOM position.
 
-If neither `overrides` nor a style domain covers what you need on a specific component, that's a real, intentional boundary on that component — the toolkit trades some flexibility for keeping most visual decisions theme-driven and AI-legible. A plain `<div>` (or any other raw HTML element) is always a fine way past that boundary — `style`/`className` never stopped working on your own markup, toolcrib components just don't expose them on their own props. `<Block>` (§2, principle 7) is there for when a themed `<div>` is specifically what you want: it accepts real `style`/`className` the same as any raw element, but its own `background`/`padding`/`radius`/`border` default to the same theme CSS variables every other component resolves through, so reaching for it doesn't mean falling back to un-themed raw styling.
+If neither `overrides` nor a style domain covers what you need on a specific component, that's a real, intentional boundary on that component — the toolkit trades some flexibility for keeping most visual decisions theme-driven and AI-legible. A plain `<div>` (or any other raw HTML element) is always a fine way past that boundary — `style`/`className` never stopped working on your own markup, toolcrib components just don't expose them on their own props. `<Block>` (§3, principle 7) is there for when a themed `<div>` is specifically what you want: it accepts real `style`/`className` the same as any raw element, but its own `background`/`padding`/`radius`/`border` default to the same theme CSS variables every other component resolves through, so reaching for it doesn't mean falling back to un-themed raw styling.
 
 ---
 
-## 10. Event Bus — Complete Payload Reference
+## 11. Event Bus — Complete Payload Reference
 
 Most events are fire-and-forget: a subscriber only sees them from the moment it calls `useAIEvent`/`aiBus.on` onward. A few events (currently `tab:changed`) are **sticky** — the bus remembers the last payload per discriminator (its `id` field) and replays it immediately to a new subscriber, so a late-mounting listener still learns the current state instead of only future changes. This matters for components with no shared DOM ancestor or mount-order guarantee, like `<TabStrip>` and `<TabStrip.Panel>`.
 
 Rendered in [TOON](https://github.com/toon-format/spec) form (`[count]{keys}:` header, one indented row per entry) — more token-compact than a Markdown table for a strongly-typed AI reader, and generated directly from `eventBus.channels` in `component-manifest.json` so it can't drift from it:
 
 ```
-[66]{name,payload}:
+[68]{name,payload}:
   "theme:changed","{ parameters: ThemeParameters; palette: GeneratedPalette; cssVariables: Record<string, string>; }"
   "element:resized","{ id?: string; target: HTMLElement; width: number; height: number; contentHeight: number }"
   "element:intersected","{ id?: string; target: HTMLElement; isIntersecting: boolean; ratio: number }"
@@ -461,6 +484,8 @@ Rendered in [TOON](https://github.com/toon-format/spec) form (`[count]{keys}:` h
   "datatable:row_clicked","{ id?: string; index: number }"
   "log:cleared","{ timestamp: string }"
   "route:navigate","{ to: string }"
+  "auth:unauthorized","{ reason?: string }"
+  "locale:changed","{ strings: ToolcribLocaleStrings }"
   "layout:domain:created","{ domainId: string; parentId: string; orientation: 'horizontal' | 'vertical' }"
   "splitter:split_changed","{ id: string; split: number }"
   "layout:corners:squared","{ domainId: string; slot: 'first' | 'second'; orientation: 'horizontal' | 'vertical'; squaredCorners: { topLeft?: boolean; topRight?: boolean; bottomLeft?: boolean; bottomRight?: boolean; }; }"

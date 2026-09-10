@@ -1,3 +1,14 @@
+'use client';
+
+/* eslint-disable react-hooks/rules-of-hooks -- AppShell.Sidebar below is a real
+   component (the documented Component.Slot = (props) => {...} pattern this
+   repo's AGENTS.md manifest section describes for slot discovery), calling
+   useContext/useState/useMemo internally. The lint rule's naming heuristic
+   only recognizes a bare PascalCase identifier as a valid component name, not
+   an `AppShell.Sidebar =` assignment target, so it misreads this as a plain
+   non-component function calling hooks illegally. Confirmed false positive,
+   not a real bug -- this renders and tests correctly today. Scoped to just
+   this one rule for this file; every other react-hooks rule still applies. */
 import React, { type ReactNode, createContext, useContext } from 'react';
 import { type PaddingMode, resolvePadding } from '../../theme/padding';
 import { type StyleFreeAttributes, warnIfLegacyStyleProps } from '../../theme/safeProps';
@@ -94,6 +105,8 @@ export interface AppShellSidebarProps extends StyleFreeAttributes<HTMLDivElement
  * @manifest Full-viewport root layout frame with Header, Sidebar, and Main slots — the top-level wrapper for an entire app
  * @manifestConstraints Intended to be rendered once, at the root of the component tree
  * @manifestCategory Containers
+ * @manifestAntiPatternAvoid Hand-roll a full-viewport app layout frame with header/sidebar/main regions and manual sidebar-collapse state
+ * @manifestAntiPatternInstead Use `<AppShell layout="sidebar-left"|"sidebar-right">` + `<AppShell.Sidebar>` — icon-only collapse and the correct divider border side come for free
  */
 export const AppShell: React.FC<AppShellProps> & {
   Header: React.FC<AppShellHeaderProps>;

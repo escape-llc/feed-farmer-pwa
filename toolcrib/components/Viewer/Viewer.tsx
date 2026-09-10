@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { aiBus } from '../../eventBus/eventBus';
 import { useStableId } from '../shared/useStableId';
@@ -25,6 +27,8 @@ export interface ViewerProps extends Omit<ViewerContentProps, 'onClose'> {
 /**
  * @manifest Fullscreen media lightbox — composes ViewerContent inside Modal
  * @manifestCategory Overlays
+ * @manifestAntiPatternAvoid Build a bespoke fullscreen image lightbox, independent of `<Modal>`
+ * @manifestAntiPatternInstead Use `<Viewer>` — composes `<ViewerContent>` inside `<Modal>` automatically; nested inside another `<Modal>`, Escape closes only the `<Viewer>`, not the parent
  */
 export const Viewer: React.FC<ViewerProps> = ({
   id: propId,

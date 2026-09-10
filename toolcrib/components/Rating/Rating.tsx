@@ -1,3 +1,5 @@
+'use client';
+
 import React, { type ReactNode } from 'react';
 import { RadioGroup as RadioGroupPrimitive } from 'radix-ui';
 import { aiBus } from '../../eventBus/eventBus';
@@ -7,8 +9,17 @@ import { RatingThemeSlice, type RatingSliceState } from './RatingSlice';
 
 /** Props for the `<Rating>` star control. */
 export interface RatingProps {
-  /** Field name included in emitted `rating:changed` events. */
+  /** Field name included in emitted `rating:changed` events. Not a visible or accessible label -- see `aria-label`. */
   name?: string;
+  /**
+   * Accessible name for the control's radiogroup, for a screen-reader user
+   * who otherwise has no visual context for what's being rated (e.g. no
+   * external heading/label already associated with it). `name` is never
+   * used for this -- it's an internal field identifier for emitted events,
+   * not human-readable text.
+   * @default 'Rating'
+   */
+  'aria-label'?: string;
   /** Controlled value. */
   value?: number;
   /** Initial value (uncontrolled). @default 0 */
@@ -36,9 +47,12 @@ const DEFAULT_ICON = '★';
 /**
  * @manifest Star rating control built on Radix RadioGroup, or a read-only fractional-fill display
  * @manifestCategory Form Controls
+ * @manifestAntiPatternAvoid Build a row of clickable star `<span>`s with manual hover/click state for a rating input
+ * @manifestAntiPatternInstead Use `<Rating>` — built on Radix `RadioGroup`, inherits real keyboard operability and `aria-checked` semantics instead of approximating them
  */
 export const Rating: React.FC<RatingProps> = ({
   name,
+  'aria-label': ariaLabel,
   value: externalValue,
   defaultValue = 0,
   onChange,
@@ -114,7 +128,7 @@ export const Rating: React.FC<RatingProps> = ({
       value={String(value)}
       onValueChange={handleChange}
       className="ai-focus-ring"
-      aria-label={name ? undefined : 'Rating'}
+      aria-label={ariaLabel ?? 'Rating'}
       style={{ display: 'inline-flex', gap: 'var(--ai-rating-gap, 0.125rem)', outline: 'none', ...ratingVars }}
     >
       {Array.from({ length: max }, (_, i) => {

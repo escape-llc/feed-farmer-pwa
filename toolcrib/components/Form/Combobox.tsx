@@ -1,3 +1,23 @@
+'use client';
+
+/* eslint-disable react-hooks/refs -- selectedLabelsRef below is a persistent,
+   incrementally-populated label cache read/written synchronously during
+   render (see its own comment for why: labels must survive staticOptions/
+   asyncOptions no longer containing a matching entry, e.g. after an async
+   search moves on). Two things make this a deliberate exception rather
+   than a bug: (1) every write is idempotent -- the same value key always
+   resolves to the same deterministic label from immutable inputs, so even
+   a discarded/replayed render (the actual concern this rule guards
+   against) can't corrupt it, writing the same data twice does nothing
+   different from writing it once; (2) deferring the population to an
+   effect (the rule's own suggested fix) would be a real regression, not a
+   fix -- the very first render needs already-selected values' labels
+   resolved immediately (used at line ~171 for this component's own
+   initial `query` state and in the chip list below), and effects don't
+   run until after that first render commits, so an effect-based version
+   would show raw values instead of labels on initial mount until some
+   unrelated re-render happened to occur. Confirmed correct as-is, not
+   deferred out of caution. */
 import React, { type ReactNode, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useOptionalFormContext } from './FormContext';
@@ -11,6 +31,7 @@ import { useTargetDocument } from '../../theme/targetDocumentContext';
 import { ComboboxThemeSlice, type ComboboxSliceState } from './ComboboxSlice';
 import { CONTROL_FONT_SIZE_VAR, resolveControlPadding, type ControlSize } from '../../theme/controlSize';
 import { Listbox, type ListboxOptionData } from '../Listbox/Listbox';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 /**
  * Props for the `<Combobox>` filterable text input + listbox.
@@ -111,6 +132,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
   const registerField = formContext?.registerField;
   const isError = fieldName && formContext ? formContext.touched[fieldName] && !!formContext.errors[fieldName] : false;
   const comboboxVars = getSparseVariables(ComboboxThemeSlice, overrides ?? {});
+  const strings = useLocaleStrings().combobox;
   const targetDocument = useTargetDocument();
   const inputRef = useRef<HTMLInputElement>(null);
   // Radix's non-modal Popover.Content only exempts clicks on
@@ -199,9 +221,21 @@ export const Combobox: React.FC<ComboboxProps> = ({
   // this input) resync the displayed text in single mode — e.g.
   // Form.resetForm(). Multi mode has no single "current label" to sync the
   // input to (selections render as chips instead, not as the input's text).
-  useEffect(() => {
+  //
+  // Adjusted during render, not via a useEffect -- React's own documented
+  // pattern for "sync state when a prop changes." Deliberately keyed on the
+  // same three inputs the original effect's deps list named (multiple,
+  // open, rawValue) rather than depending on labelFor/selectedValues too --
+  // this must resync exactly when one of those three actually changes, not
+  // on every render where selectedValues happens to differ for an unrelated
+  // reason (e.g. the user's own selection, which shouldn't stomp on what
+  // they just typed/selected).
+  const comboboxSyncKey = `${multiple}|${open}|${rawValue}`;
+  const [prevComboboxSyncKey, setPrevComboboxSyncKey] = useState(comboboxSyncKey);
+  if (comboboxSyncKey !== prevComboboxSyncKey) {
+    setPrevComboboxSyncKey(comboboxSyncKey);
     if (!multiple && !open) setQuery(labelFor(selectedValues[0] ?? ''));
-  }, [multiple, open, rawValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   useEffect(() => {
     if (!onSearch) return;
@@ -245,9 +279,15 @@ export const Combobox: React.FC<ComboboxProps> = ({
     return source.filter(o => o.label.toLowerCase().includes(q));
   }, [onSearch, asyncOptions, staticOptions, query]);
 
-  useEffect(() => {
+  // Adjusted during render, not via a useEffect -- same "sync state when a
+  // derived value changes" pattern as above, avoiding an extra
+  // render-then-effect-then-rerender cascade every time the filtered list
+  // shrinks/grows.
+  const [prevFilteredLength, setPrevFilteredLength] = useState(filteredOptions.length);
+  if (filteredOptions.length !== prevFilteredLength) {
+    setPrevFilteredLength(filteredOptions.length);
     setActiveIndex(prev => Math.max(0, Math.min(prev, filteredOptions.length - 1)));
-  }, [filteredOptions.length]);
+  }
 
   const emitChange = (next: string[]) => {
     const emitted: string | string[] = multiple ? next : next[0] ?? '';
@@ -382,7 +422,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
       <PopoverPrimitive.Anchor asChild>
         <div
           ref={anchorRef}
-          className="ai-focus-ring-within"
+          className="ai-focus-ring"
           onClick={() => inputRef.current?.focus()}
           style={{
             display: 'flex',
@@ -427,7 +467,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
                   alignItems: 'center',
                   gap: '0.25rem',
                   padding: '0.125rem 0.375rem 0.125rem 0.5rem',
-                  borderRadius: '9999px',
+                  borderRadius: 'var(--ai-radius-xl, 9999px)',
                   background: 'var(--ai-color-primary, #3b82f6)',
                   color: 'var(--ai-color-primary-text, #ffffff)',
                   fontSize: '0.75rem',
@@ -438,7 +478,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
                 {labelFor(v)}
                 <button
                   type="button"
-                  aria-label={`Remove ${labelFor(v)}`}
+                  aria-label={strings.removeItem(labelFor(v))}
                   disabled={disabled}
                   onClick={e => {
                     e.stopPropagation();
@@ -465,16 +505,27 @@ export const Combobox: React.FC<ComboboxProps> = ({
             id={effectiveId}
             aria-label={ariaLabel}
             role="combobox"
-            aria-expanded={open}
+            // `open && !disabled`, not `open` alone -- the actual Popover
+            // below is gated on that same combined condition
+            // (`<PopoverPrimitive.Root open={open && !disabled}>`), so
+            // `open` alone can be stale-true (e.g. the input became
+            // disabled while already open, or -- confirmed via a real axe
+            // failure, not assumed -- the onChange handler below could
+            // call setOpen(true) even while disabled) while the popover
+            // itself never actually renders. Reporting aria-expanded="true"
+            // with aria-controls/aria-activedescendant pointing at content
+            // that was never mounted is a real, confirmed dangling-IDREF
+            // bug (axe: aria-valid-attr-value), not just a style issue.
+            aria-expanded={open && !disabled}
             // Only while open -- the listbox this points to (Listbox below,
             // inside PopoverPrimitive.Content) only mounts when open is
             // true, so pointing at its id while closed is a reference to an
             // element that isn't in the DOM (axe: aria-valid-attr-value).
-            aria-controls={open ? listboxId : undefined}
+            aria-controls={open && !disabled ? listboxId : undefined}
             aria-autocomplete="list"
             // Same reasoning as aria-controls above -- the option divs
             // aria-activedescendant would point at only exist while open.
-            aria-activedescendant={open ? activeOptionId : undefined}
+            aria-activedescendant={open && !disabled ? activeOptionId : undefined}
             aria-invalid={isError || undefined}
             aria-describedby={isError ? `${fieldName}-error` : undefined}
             autoComplete="off"
@@ -489,7 +540,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
                 // fires, not on every keystroke (and never on mere focus,
                 // see onFocus/onClick below).
                 isUserTypingRef.current = true;
-              } else {
+              } else if (!disabled) {
                 setOpen(true);
               }
             }}
@@ -497,8 +548,12 @@ export const Combobox: React.FC<ComboboxProps> = ({
             // once the user actually types and a search fires (see the
             // search effect above and its own comment). Client-side mode
             // (a fixed `options` list, nothing to wait on) keeps opening
-            // immediately, unchanged.
-            onFocus={() => { if (!onSearch) setOpen(true); }}
+            // immediately, unchanged. `!disabled` guards both: a real
+            // browser blocks interaction with a disabled input entirely,
+            // but a programmatic event (or `disabled` flipping true while
+            // already open) shouldn't leave `open` state true with nothing
+            // actually rendered to back it.
+            onFocus={() => { if (!onSearch && !disabled) setOpen(true); }}
             // Selecting an option deliberately keeps DOM focus on the input
             // (the option's own onMouseDown preventDefaults specifically so
             // focus never moves) so typing immediately after a selection
@@ -527,7 +582,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
           {hasValue && !disabled && (
             <button
               type="button"
-              aria-label="Clear selection"
+              aria-label={strings.clearSelection}
               onClick={handleClear}
               tabIndex={-1}
               style={{
@@ -546,7 +601,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
                 // (reported directly, from a real screenshot).
                 background: 'var(--ai-bg-container, #f3f4f6)',
                 border: 'none',
-                borderRadius: '9999px',
+                borderRadius: 'var(--ai-radius-xl, 9999px)',
                 cursor: 'pointer',
                 color: 'var(--ai-text-secondary, #6b7280)',
                 fontSize: '0.6875rem',
@@ -563,6 +618,19 @@ export const Combobox: React.FC<ComboboxProps> = ({
       <PopoverPrimitive.Portal container={targetDocument?.body}>
         <PopoverPrimitive.Content
           ref={contentRef}
+          // Radix's own Popover.Content hardcodes role="dialog" -- correct
+          // for Popover's usual real-dialog-like usage, wrong here: this
+          // wrapper is purely an anchored-positioning container around a
+          // real role="listbox" (the WAI-ARIA Combobox pattern this
+          // component implements calls for no wrapping role around the
+          // listbox at all). Overriding to role="presentation" strips the
+          // redundant, unnamed "dialog" semantics rather than just adding
+          // a name to silence axe's aria-dialog-name rule -- the listbox
+          // inside already carries the real, correct semantics. Confirmed
+          // this override actually takes effect (not assumed): Radix's own
+          // source spreads consumer props after its own `role: "dialog"`,
+          // so a later `role` here wins.
+          role="presentation"
           side="bottom"
           align="start"
           sideOffset={squaring.sideOffset}
@@ -591,7 +659,7 @@ export const Combobox: React.FC<ComboboxProps> = ({
             width: 'var(--radix-popover-trigger-width)',
             background: 'var(--ai-bg-surface, #ffffff)',
             border: '0.0625rem solid var(--ai-border, #e5e7eb)',
-            boxShadow: '0 0.625rem 1.5625rem -0.3125rem rgba(0,0,0,0.15)',
+            boxShadow: 'var(--ai-shadow-md, 0 0.625rem 1.5625rem -0.3125rem rgba(0,0,0,0.15))',
             overflow: 'hidden',
             ...squaring.popupCornerStyle,
             ...comboboxVars,

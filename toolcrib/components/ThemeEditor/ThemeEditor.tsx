@@ -1,3 +1,5 @@
+'use client';
+
 import React, { type ReactNode, useMemo, useState, useRef } from 'react';
 import { useTheme } from '../../theme/themeContext';
 import { type HarmonyMode } from '../../theme/harmonies';
@@ -267,7 +269,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
               borderRadius: '50%',
               background: 'var(--ai-color-base)',
               border: '0.125rem solid #ffffff',
-              boxShadow: '0 0.125rem 0.25rem rgba(0,0,0,0.2)',
+              boxShadow: 'var(--ai-shadow-sm, 0 0.125rem 0.25rem rgba(0,0,0,0.2))',
             }}
           />
         </div>
@@ -283,6 +285,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={360}
             value={parameters.baseColor.h}
             onChange={val => setBaseColor({ ...parameters.baseColor, h: val })}
+            ariaLabel="Hue (H)"
           />
         </div>
 
@@ -297,6 +300,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={100}
             value={parameters.baseColor.s}
             onChange={val => setBaseColor({ ...parameters.baseColor, s: val })}
+            ariaLabel="Saturation (S)"
           />
         </div>
 
@@ -311,6 +315,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={100}
             value={parameters.baseColor.v}
             onChange={val => setBaseColor({ ...parameters.baseColor, v: val })}
+            ariaLabel="Brightness (V)"
           />
         </div>
 
@@ -334,6 +339,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             step={0.05}
             value={parameters.darkenLightenFactor}
             onChange={val => setDarkenLightenFactor(val)}
+            ariaLabel="Darken / Lighten Factor"
           />
         </div>
 
@@ -356,6 +362,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             step={0.05}
             value={parameters.saturationFactor}
             onChange={val => setSaturationFactor(val)}
+            ariaLabel="Saturation Factor"
           />
         </div>
       </div>
@@ -456,6 +463,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
           max={90}
           value={parameters.hueSpread}
           onChange={val => setHueSpread(val)}
+          ariaLabel="Hue Spread Angle"
         />
       </div>
     </div>

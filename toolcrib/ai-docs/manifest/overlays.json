@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Per-category slice of component-manifest.json's \"components\" array (category: Overlays), for on-demand detail without loading the full manifest. See component-manifest.json for themeSystem/zIndexScale/eventBus and cross-category data.",
   "category": "Overlays",
   "components": [
@@ -41,7 +41,7 @@
         "zIndex": {
           "type": "number",
           "default": "Z_INDEX.MODAL (200)",
-          "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default."
+          "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An\nintentional escape hatch, not guarded against an arbitrary/conflicting\nvalue -- most consumers should never need it. See Modal's identical\nprop for the tie-breaking behavior when two instances share a default."
         },
         "ariaLabel": {
           "type": "string",
@@ -93,6 +93,8 @@
         }
       },
       "category": "Overlays",
+      "antiPatternAvoid": "Hand-roll a fuzzy-searchable command launcher with a raw `<input>` and manual filtering, or wire your own global `Cmd/Ctrl+K` listener",
+      "antiPatternInstead": "Use `<CommandPalette items={...}>` — fuzzy filter, grouping, and the global shortcut are wired in automatically once mounted; triggerable from anywhere via `aiBus.openCommandPalette(id)`",
       "description": "Fuzzy-searchable command launcher opened via Cmd/Ctrl+K, hosted in a top-anchored Modal (VS Code-style quick-switcher placement)"
     },
     {
@@ -154,7 +156,7 @@
         "zIndex": {
           "type": "number",
           "default": "Z_INDEX.DRAWER (100)",
-          "description": "Z-index layer. Uses the toolkit's Z_INDEX.DRAWER tier by default."
+          "description": "Z-index layer. Uses the toolkit's Z_INDEX.DRAWER tier by default. An\nintentional escape hatch, not guarded against an arbitrary/conflicting\nvalue -- most consumers should never need it. See Modal's identical\nprop for the tie-breaking behavior when two instances share a default."
         }
       },
       "category": "Overlays",
@@ -276,7 +278,7 @@
         "zIndex": {
           "type": "number",
           "default": "Z_INDEX.MODAL (200)",
-          "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default."
+          "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An\nintentional escape hatch, not guarded against an arbitrary/conflicting\nvalue -- most consumers should never need it. Two Modal instances left\nat their shared default (nested, or simply both open) get the\nidentical numeric z-index; real stacking between them then falls back\nto portal/DOM append order, which is what actually keeps a later-\nopened instance on top today (verified live, see\ne2e/zindex-stress.spec.ts) -- not a second, independent guarantee."
         },
         "ariaLabel": {
           "type": "string",
@@ -385,6 +387,8 @@
         }
       },
       "category": "Overlays",
+      "antiPatternAvoid": "Build a bespoke fullscreen image lightbox, independent of `<Modal>`",
+      "antiPatternInstead": "Use `<Viewer>` — composes `<ViewerContent>` inside `<Modal>` automatically; nested inside another `<Modal>`, Escape closes only the `<Viewer>`, not the parent",
       "description": "Fullscreen media lightbox — composes ViewerContent inside Modal"
     },
     {
@@ -423,6 +427,8 @@
         }
       },
       "category": "Overlays",
+      "antiPatternAvoid": "Weld a media viewer's zoom/pan/nav content directly to one specific overlay component",
+      "antiPatternInstead": "Use `<ViewerContent>` on its own — zero overlay chrome of its own, host it inside `<Modal>` (`<Viewer>`), `<Drawer>`, `<Popup>`, or directly inline",
       "description": "Media viewer content — zoom/pan and prev/next navigation, no overlay chrome of its own; host it inside a `<Modal>` (see `<Viewer>`), `<Drawer>`, `<Popup>`, or directly inline, of your choosing"
     }
   ],

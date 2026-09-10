@@ -1,9 +1,12 @@
+'use client';
+
 import React, { type ReactNode, useState, useRef, useMemo, type KeyboardEvent } from 'react';
 import { aiBus } from '../../eventBus/eventBus';
 import { useStableId } from '../shared/useStableId';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
 import { DeferredContent } from '../Layout/DeferredContent';
 import { TreeThemeSlice, type TreeSliceState } from './TreeSlice';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 /** Data shape for each node in a data-driven `<Tree>`. */
 export interface TreeItemData {
@@ -71,6 +74,8 @@ export interface TreeProps {
  * @manifest Data-driven tree view with expand/collapse, single selection, and full WAI-ARIA Treeview keyboard navigation
  * @manifestConstraints Rendered as a flat, single-level DOM list with `aria-level`/`aria-setsize`/`aria-posinset` conveying hierarchy (not nested `role="group"` elements) — a WAI-ARIA-APG-accepted alternative that keeps each visible row independently wrappable in `<DeferredContent>` for large trees
  * @manifestCategory Data Display
+ * @manifestAntiPatternAvoid Hand-roll a nested list's expand/collapse with `useState` per node, or a custom keydown handler for arrow-key navigation
+ * @manifestAntiPatternInstead Use `<Tree>` — full WAI-ARIA Treeview keyboard nav (arrows, Home/End, type-ahead) and `aria-expanded`/`aria-level`/`aria-selected` come for free
  */
 export const Tree: React.FC<TreeProps> = ({
   id: propId,
@@ -85,10 +90,20 @@ export const Tree: React.FC<TreeProps> = ({
 }) => {
   const id = useStableId(propId, 'tree');
   const { vars } = useSliceOverrides(TreeThemeSlice, overrides);
+  const strings = useLocaleStrings().tree;
 
   const [internalExpanded, setInternalExpanded] = useState<Set<string>>(() => new Set(defaultExpandedIds ?? []));
   const isExpandedControlled = controlledExpandedIds !== undefined;
-  const expandedSet = isExpandedControlled ? new Set(controlledExpandedIds) : internalExpanded;
+  // useMemo, not a bare conditional -- the controlled branch built a brand
+  // new Set every render (even when controlledExpandedIds' actual contents
+  // hadn't changed), which silently defeated flatVisible's own useMemo
+  // below (expandedSet never held a stable reference for it to compare
+  // against). Memoizing here fixes both the exhaustive-deps concern and a
+  // real, if minor, performance regression in controlled mode.
+  const expandedSet = useMemo(
+    () => (isExpandedControlled ? new Set(controlledExpandedIds) : internalExpanded),
+    [isExpandedControlled, controlledExpandedIds, internalExpanded]
+  );
 
   const [internalSelected, setInternalSelected] = useState<string | undefined>(defaultSelectedId);
   const isSelectedControlled = controlledSelectedId !== undefined;
@@ -195,7 +210,7 @@ export const Tree: React.FC<TreeProps> = ({
   };
 
   return (
-    <div role="tree" aria-label="Tree" style={{ display: 'flex', flexDirection: 'column', ...vars }}>
+    <div role="tree" aria-label={strings.treeLabel} style={{ display: 'flex', flexDirection: 'column', ...vars }}>
       {flatVisible.map((node, index) => {
         const hasChildren = !!node.item.children?.length;
         const isExpanded = expandedSet.has(node.item.id);

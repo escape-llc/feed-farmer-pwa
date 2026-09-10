@@ -1,9 +1,11 @@
+'use client';
+
 import React, { useState, useLayoutEffect, useRef, type ReactNode, type ReactElement } from 'react';
 import { Portal } from 'radix-ui';
 import { Presence } from '@radix-ui/react-presence';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
-import { Z_INDEX } from '../../theme/zIndex';
+import { useStackedZIndex } from '../../theme/zIndexStack';
 import { AIErrorBoundary } from '../ErrorBoundary/AIErrorBoundary';
 import { useStableId } from '../shared/useStableId';
 import { useInjectInteractionStyles } from '../../theme/interactionStyles';
@@ -40,7 +42,10 @@ export interface DrawerProps {
    */
   width?: string;
   /**
-   * Z-index layer. Uses the toolkit's Z_INDEX.DRAWER tier by default.
+   * Z-index layer. Uses the toolkit's Z_INDEX.DRAWER tier by default. An
+   * intentional escape hatch, not guarded against an arbitrary/conflicting
+   * value -- most consumers should never need it. See Modal's identical
+   * prop for the tie-breaking behavior when two instances share a default.
    * @default Z_INDEX.DRAWER (100)
    */
   zIndex?: number;
@@ -59,10 +64,12 @@ export const Drawer: React.FC<DrawerProps> = ({
   onOpenChange,
   title,
   width: propWidth,
-  zIndex = Z_INDEX.DRAWER,
+  zIndex: zIndexProp,
 }) => {
   const id = useStableId(propId, 'drawer');
   const targetDocument = useTargetDocument();
+  const autoZIndex = useStackedZIndex('DRAWER');
+  const zIndex = zIndexProp ?? autoZIndex;
   useInjectInteractionStyles();
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
@@ -187,11 +194,12 @@ export const Drawer: React.FC<DrawerProps> = ({
               ref={drawerRef}
               role="dialog"
               aria-modal="true"
+              aria-labelledby={`${id}-title`}
               onClick={e => e.stopPropagation()}
               style={{
                 position: 'fixed',
                 background: 'var(--ai-bg-surface, #ffffff)',
-                boxShadow: '0 1.25rem 1.5625rem -0.3125rem rgba(0,0,0,0.15)',
+                boxShadow: 'var(--ai-shadow-lg, 0 1.25rem 1.5625rem -0.3125rem rgba(0,0,0,0.15))',
                 display: 'flex',
                 flexDirection: 'column',
                 zIndex: zIndex + 1,
@@ -216,7 +224,7 @@ export const Drawer: React.FC<DrawerProps> = ({
                   background: 'var(--ai-bg-surface, #ffffff)',
                 }}
               >
-                <div style={{ fontWeight: 'var(--ai-font-weight-bold, 700)', fontSize: '1.125rem', color: 'var(--ai-text-primary, #111827)' }}>
+                <div id={`${id}-title`} style={{ fontWeight: 'var(--ai-font-weight-bold, 700)', fontSize: '1.125rem', color: 'var(--ai-text-primary, #111827)' }}>
                   {title || 'Drawer Panel'}
                 </div>
                 <button

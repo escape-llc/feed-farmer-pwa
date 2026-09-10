@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useRef, useEffect } from 'react';
 import { Toast as ToastPrimitive } from 'radix-ui';
 import { type ToastItem, useToast } from './ToastContext';
@@ -8,6 +10,7 @@ import { useInjectInteractionStyles } from '../../theme/interactionStyles';
 import { useTargetDocument } from '../../theme/targetDocumentContext';
 import { useNonce } from '../../theme/nonceContext';
 import { resolveColorVariant } from '../../theme/colorVariant';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 
 const TOAST_STYLE_ID = 'toolcrib-toast-animations';
 
@@ -109,6 +112,7 @@ export interface ToastProps {
 
 export const ToastItemComponent: React.FC<ToastProps> = ({ toast }) => {
   const { dismissToast } = useToast();
+  const strings = useLocaleStrings().toast;
   const targetDocument = useTargetDocument();
   const nonce = useNonce();
   useEffect(() => {
@@ -230,7 +234,6 @@ export const ToastItemComponent: React.FC<ToastProps> = ({ toast }) => {
         minWidth: '17.5rem',
         maxWidth: '26.25rem',
         position: 'relative',
-        zIndex: 3000,
         outline: 'none',
         // Confirmed via a real browser run (DOM dump + computed-style walk):
         // Radix's ToastPrimitive.Root portals its actual rendered content to
@@ -302,7 +305,7 @@ export const ToastItemComponent: React.FC<ToastProps> = ({ toast }) => {
             </div>
 
             <ToastPrimitive.Close
-              aria-label="Dismiss toast"
+              aria-label={strings.dismissToast}
               onClick={() => { dismissReasonRef.current = 'user'; }}
               className="ai-btn"
               style={{
