@@ -1,0 +1,12 @@
+# Feed Farmer
+
+> An RSS/Atom feed reader PWA — fully client-side, offline-capable, no backend of any kind. Built with [toolcrib](https://escape-llc.github.io/toolcrib/), an AI-generated, AI-optimized React UI toolkit.
+
+## About
+
+- [README](https://github.com/escape-llc/feed-farmer-pwa): what this app does and which toolcrib features it demonstrates
+- [Source](https://github.com/escape-llc/feed-farmer-pwa): full source, including its vendored `toolcrib/` copy
+
+## Built With
+
+- [toolcrib llms.txt](https://escape-llc.github.io/toolcrib/llms.txt): the UI toolkit this app is built with — component library, theme system, event bus, and AI-facing docs
