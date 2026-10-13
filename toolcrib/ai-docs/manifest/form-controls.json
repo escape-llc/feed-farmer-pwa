@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.14.0",
+  "version": "0.16.0",
   "description": "Per-category slice of component-manifest.json's \"components\" array (category: Form Controls), for on-demand detail without loading the full manifest. See component-manifest.json for themeSystem/zIndexScale/eventBus and cross-category data.",
   "category": "Form Controls",
   "components": [
@@ -100,12 +100,123 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — maps onto the same scale as `overrides.cellSize` and scales the month heading's font size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the calendar grid. Required for a meaningful accessible name unless `aria-labelledby` is given instead — without either, React Aria's own `useCalendar` warns and the grid has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "category": "Form Controls",
       "antiPatternAvoid": "Hand-roll month-grid calendar math (day-of-week offsets, leap years, month-length edge cases)",
       "antiPatternInstead": "Use `<Calendar>` with `@internationalized/date` values — timezone/DST/locale correctness is exactly what that dependency exists to guarantee",
       "description": "Month grid for selecting a single date, built on React Aria Components"
+    },
+    {
+      "name": "Checkbox",
+      "import": "import { Checkbox } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label text rendered beside the checkbox."
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Controlled checked state."
+        },
+        "defaultChecked": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Initial checked state when neither `checked` nor a Form binding is present (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(checked: boolean) => void",
+          "description": "Change handler. Receives the new boolean value directly, like `<Switch>`'s."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance size override. Shared with `<Switch>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member.\nSee `<Button>`'s own identical prop for the general pattern."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Boolean checkbox bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable checkbox element"
+    },
+    {
+      "name": "CheckboxGroup",
+      "import": "import { CheckboxGroup } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is a `string[]`."
+        },
+        "options": {
+          "type": "CheckboxOption[]",
+          "required": true,
+          "description": "The checkboxes, in display order."
+        },
+        "value": {
+          "type": "string[]",
+          "description": "Controlled checked values."
+        },
+        "defaultValue": {
+          "type": "string[]",
+          "description": "Initial checked values (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: string[]) => void",
+          "description": "Change handler. Receives the checked values, in `options` order."
+        },
+        "maxSelected": {
+          "type": "number",
+          "description": "Most boxes that can be checked at once. When reached, the unchecked boxes disable until one is unchecked."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Visible group label. Inside a `<FormField label>` leave it off: the field's label names the group."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name when there is no visible label."
+        },
+        "direction": {
+          "type": "'horizontal' | 'vertical'",
+          "default": "'vertical'",
+          "description": "Layout direction."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "If true, every option is disabled."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control: the option label's font size."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance checkbox size override. Shared with `<Checkbox>`/`<Switch>`."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "N separate `<Checkbox>`es plus hand-written code to fold them into one array field",
+      "antiPatternInstead": "`<CheckboxGroup options={[...]} maxSelected={3} />` inside a `<FormField>`; the Form value is the array of checked values",
+      "description": "Group of checkboxes bound to one array-valued field (`string[]`), data-driven, with optional `maxSelected`"
     },
     {
       "name": "Combobox",
@@ -124,9 +235,13 @@
           "default": "'Search...'",
           "description": "Placeholder text when empty."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "description": "Accessible name announced by screen readers. Only needed when this\n`Combobox` isn't inside a `<FormField label=\"...\">` -- the `<label\nhtmlFor>` that renders provides the accessible name already in that\ncase, the same way it does for `Input`/`Select`/`Slider`."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names this control. Used instead of the inherited `<FormField>` label when set."
         },
         "options": {
           "type": "ListboxOptionData[]",
@@ -145,6 +260,10 @@
           "type": "boolean",
           "default": "false",
           "description": "Allows selecting more than one option, rendered as removable chips.\nChanges the shape of `value`/`defaultValue`/`onChange` from `string` to\n`string[]`."
+        },
+        "chipColor": {
+          "type": "(value: string) => ComboboxChipColor | undefined",
+          "description": "Per-chip color when `multiple` is true — called with each selected\nvalue; return `undefined` for the default solid primary chip. A\nfunction of the value rather than a field on each option, so it also\ncovers `allowCustomValue` chips and controlled/async values that have\nno matching option object on hand (e.g. `v => v === 'urgent' ? { subtheme: 'error' } : undefined`)."
         },
         "value": {
           "type": "string | string[]",
@@ -180,6 +299,10 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
@@ -234,12 +357,126 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way (e.g. `<FormField label=\"...\">`'s own\nrendered label, which the field's composite date-segment structure\ncan't associate via a plain `htmlFor` the way a single `<input id>`\ncan) and doesn't want `label` above rendering a second, visually\nduplicate one. Ignored if `label` is set — that already supplies an\naccessible name via React Aria's own `<Label>`. Required for a\nmeaningful accessible name unless `aria-labelledby` or `label` is\ngiven instead — without any of the three, React Aria's own\n`useDatePicker` warns and the field has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
       "antiPatternAvoid": "Hand-roll a date-field + calendar popover, or pass a raw JS `Date` into a custom date input",
       "antiPatternInstead": "Use `<DatePicker>` with an `@internationalized/date` `CalendarDate` value — timezone/DST/locale correctness is exactly what that dependency exists to guarantee",
       "description": "Date field + calendar popover, hosted in `<Popup>` (not React Aria's own popover), built on React Aria Components"
+    },
+    {
+      "name": "DateRangePicker",
+      "import": "import { DateRangePicker } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. The Form value is a `{ start, end }` `CalendarDateRange`, or `null`."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the field."
+        },
+        "value": {
+          "type": "CalendarDateRange | null",
+          "description": "Controlled value, as `@internationalized/date` `CalendarDate`s -- never\nraw JS `Date`s at this boundary."
+        },
+        "defaultValue": {
+          "type": "CalendarDateRange | null",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: CalendarDateRange | null) => void",
+          "description": "Change handler. Receives the new range, or `null` if cleared."
+        },
+        "minValue": {
+          "type": "CalendarDate",
+          "description": "Earliest selectable date, inclusive."
+        },
+        "maxValue": {
+          "type": "CalendarDate",
+          "description": "Latest selectable date, inclusive."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag. Fixed, not browser-auto-detected -- see\n`<TimeField>`'s own doc for why an explicit default prevents an SSR\nhydration mismatch."
+        },
+        "overrides": {
+          "type": "Partial<DatePickerSliceState>",
+          "description": "Per-instance override for the calendar popover's grid cell size."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way (e.g. `<FormField label=\"...\">`). Ignored\nif `label` is set. Required for a meaningful accessible name unless\n`aria-labelledby` or `label` is given instead."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "Pair two `<DatePicker>`s for a date range and hand-validate that the end isn't before the start",
+      "antiPatternInstead": "Use `<DateRangePicker>` — one Form-bound `{ start, end }` value, with the calendar enforcing start/end ordering as you pick",
+      "description": "Start/end date fields + a range calendar popover, hosted in `<Popup>`, built on React Aria Components"
+    },
+    {
+      "name": "Fieldset",
+      "import": "import { Fieldset } from '#toolcrib'",
+      "props": {
+        "legend": {
+          "type": "ReactNode",
+          "required": true,
+          "description": "The group's visible label, e.g. \"Shipping address\". Required, not\noptional: a fieldset without a legend is a group nothing announces, which\nis the problem this component exists to fix."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Disable every field inside. Native inputs and buttons are disabled by the\nunderlying `<fieldset>`; every other toolcrib control reads it too.\nNested fieldsets inherit it."
+        },
+        "gap": {
+          "type": "'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'gap'",
+          "default": "'md'",
+          "description": "Gap between the fields."
+        },
+        "marginMode": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Override the gap using the theme margin token scale."
+        }
+      },
+      "childComponents": [
+        "FormField",
+        "Input",
+        "Select",
+        "Checkbox",
+        "RadioGroup"
+      ],
+      "category": "Form Controls",
+      "description": "Labelled group of form fields (a real fieldset and legend); a disabled Fieldset disables every field inside it"
     },
     {
       "name": "FileUpload",
@@ -286,6 +523,18 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — maps onto the same `density` scale as `overrides.density` (`sm`→`'compact'`, `md`→`'normal'`, `lg`→`'spacious'`) and scales the dropzone's own label text."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the dropzone. Only needed outside a `<FormField label>`, whose label names it already."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names the dropzone. Used instead of the inherited `<FormField>` label when set."
         }
       },
       "category": "Form Controls",
@@ -318,8 +567,11 @@
         "Button",
         "SubmitButton",
         "Input",
+        "NumberField",
+        "OTPField",
         "Select",
         "Checkbox",
+        "CheckboxGroup",
         "Switch",
         "Textarea",
         "RadioGroup",
@@ -329,6 +581,91 @@
       "antiPatternAvoid": "Write `register()` or `onChange` boilerplate for form fields",
       "antiPatternInstead": "Nest `<Input>`, `<Select>`, etc. inside `<FormField name=\"...\">` — binding is automatic",
       "description": "Zod 4 schema-driven form. Controls bind via context — no register() or onChange boilerplate"
+    },
+    {
+      "name": "FormError",
+      "import": "import { FormError } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name to show the error for. Omit for a summary error banner."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Validation error display: one field's error (after it is touched) with `name`, or a summary banner of all errors without it"
+    },
+    {
+      "name": "FormField",
+      "import": "import { FormField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Field name that binds to the form schema and context."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the control."
+        },
+        "helperText": {
+          "type": "ReactNode",
+          "description": "Help text shown below the control (hidden when there's a validation error)."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Wraps one form control with its label, helper text and validation error, and binds the control to the Form field `name` via context"
+    },
+    {
+      "name": "Input",
+      "import": "import { Input } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "overrides": {
+          "type": "Partial<InputSliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for padding and border width. Shared with `<Textarea>`. Only applies at the default `size=\"md\"` — `sm`/`lg` resolve through the shared control padding scale instead, so they line up with a `sm`/`lg` `<Button>` in the same `<UIGroup>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "default": "'none'",
+          "description": "Which corners to square off — e.g. inside a `<UIGroup>`."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "clearable": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Shows a small \"✕\" clear button at the trailing edge once the input has\na non-empty value — clicking it resets the value through the same\nonChange/Form-context path a real clear keystroke would take, then\nreturns focus to the input. Mirrors `<Combobox>`'s own established\nsingle-select clear button (`strings.clearSelection`) — same\n`tabIndex={-1}` (mouse-only; Backspace/select-all already provide a\nkeyboard path, so this doesn't add an extra required Tab stop for\nsomething with an easy keyboard alternative)."
+        },
+        "onClear": {
+          "type": "() => void",
+          "description": "Extra side effect to run when the clear button is clicked — e.g. also resetting a related piece of state (an active-descendant index, a filter). Runs after the value itself is cleared. Only meaningful alongside `clearable`."
+        },
+        "leadingSection": {
+          "type": "ReactNode",
+          "description": "Content inside the field's border, before the text: an icon (`<Search />`),\nor short affix text (`'$'`, `'https://'`) — a plain string/number renders\nas muted affix text. May also be a small interactive control (e.g. a\ncompact `<Select>` or `<Button>`); clicking any non-interactive part of a\nsection focuses the input."
+        },
+        "trailingSection": {
+          "type": "ReactNode",
+          "description": "Same as `leadingSection`, after the text (`'.com'`, `'kg'`, an icon). Renders before the `clearable` button and the password reveal toggle when those are present."
+        },
+        "revealable": {
+          "type": "boolean",
+          "default": "true",
+          "description": "For `type=\"password\"`: show an eye toggle that reveals the typed value.\nThe toggle keeps a fixed accessible name (locale `input.showPassword`)\nand reports its state via `aria-pressed`. Ignored for other types."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Text input bound to Form context, with optional leading/trailing sections (icon or affix text inside the border), a clear button, and a password reveal toggle"
     },
     {
       "name": "Label",
@@ -397,11 +734,156 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — drives the option row's font-size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the listbox. A listbox always needs one: a\ncontrolling field's `aria-controls` doesn't name it. When it's the popup\nof a field, give it the field's name (Combobox and Select pass their\n`aria-label`, or the FormField label via `aria-labelledby`). A\n`<div role=\"listbox\">` with neither this nor `aria-labelledby` has no\nname at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "constraints": "Purely presentational — owns no keyboard-navigation state; the caller drives `activeIndex` and reads back `${id}-option-${index}` for its own `aria-activedescendant`",
       "category": "Form Controls",
-      "description": "Keyboard-navigable, controlled option list with no matching Radix primitive to build on — extracted from Combobox's own hand-built listbox, now usable standalone"
+      "description": "Keyboard-navigable, controlled option list — extracted from Combobox's own hand-built listbox, now usable standalone"
+    },
+    {
+      "name": "NumberField",
+      "import": "import { NumberField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is a real `number` (or `null` when empty)."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the input."
+        },
+        "value": {
+          "type": "number | null",
+          "description": "Controlled value. `null` is an empty field."
+        },
+        "defaultValue": {
+          "type": "number | null",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: number | null) => void",
+          "description": "Change handler, called when the value commits (blur, Enter, a stepper, arrow keys). Receives `null` when the field is cleared."
+        },
+        "min": {
+          "type": "number",
+          "description": "Lowest allowed value; typed values clamp to it on commit."
+        },
+        "max": {
+          "type": "number",
+          "description": "Highest allowed value; typed values clamp to it on commit."
+        },
+        "step": {
+          "type": "number",
+          "description": "Increment for the steppers and arrow keys. When set, typed values also\nsnap to it (`step={0.25}` turns 1.1 into 1.0). Leave it unset for\nfree-form decimals like prices: the steppers still move by 1 and nothing\nis rounded."
+        },
+        "formatOptions": {
+          "type": "Intl.NumberFormatOptions",
+          "description": "Display format, as `Intl.NumberFormat` options: `{ style: 'currency', currency: 'USD' }`,\n`{ style: 'percent' }`, `{ style: 'unit', unit: 'kilogram' }`, `{ maximumFractionDigits: 2 }`.\nThe value itself stays a plain number (a percent of 25% is `0.25`)."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag for formatting and parsing (decimal and group\nseparators, currency placement). Fixed rather than browser-detected,\nso server and client render the same text (no hydration mismatch)."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Placeholder shown while the field is empty."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>`/`<Input>` so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name when no visible `label` is rendered. Ignored if `label` is set."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, referencing an existing visible label's id. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s identical prop."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "`<Input type=\"number\">` plus hand-rolled +/- buttons, clamping and `Intl.NumberFormat` display",
+      "antiPatternInstead": "`<NumberField min={0} max={99} formatOptions={{ style: 'currency', currency: 'USD' }} />` — inside a `<Form>` it stores a real `number`",
+      "description": "Numeric input with −/+ steppers, min/max clamping, step snapping, arrow/PageUp/PageDown keys and locale-aware currency/percent/unit formatting, built on React Aria Components"
+    },
+    {
+      "name": "OTPField",
+      "import": "import { OTPField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is one string."
+        },
+        "length": {
+          "type": "number",
+          "default": "6",
+          "description": "Number of cells."
+        },
+        "value": {
+          "type": "string",
+          "description": "Controlled value (the whole code as one string)."
+        },
+        "defaultValue": {
+          "type": "string",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: string) => void",
+          "description": "Called on every change with the whole code so far."
+        },
+        "onComplete": {
+          "type": "(value: string) => void",
+          "description": "Called once every cell is filled, with the full code."
+        },
+        "mode": {
+          "type": "'numeric' | 'alphanumeric'",
+          "default": "'numeric'",
+          "description": "Which characters a cell accepts; others are dropped, including from a paste."
+        },
+        "mask": {
+          "type": "boolean",
+          "description": "Hide the characters, for a PIN."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Visible group label. Inside a `<FormField label>` leave it off: the field's label names the group."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the group when there is no visible label."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Input>` and every other sized control."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "A row of hand-rolled single-character `<input>`s with manual focus moving, paste splitting and keyboard handling",
+      "antiPatternInstead": "`<OTPField length={6} onComplete={verify} />` inside a `<FormField>`; the Form value is the code as one string",
+      "description": "One-time code / PIN input: one cell per character with auto-advance, backspace-to-previous, paste distribution and SMS autofill (`autocomplete=\"one-time-code\"`), bound to a Form as one string"
     },
     {
       "name": "Pagination",
@@ -451,6 +933,24 @@
       "slots": [
         "Option"
       ],
+      "slotProps": {
+        "Option": {
+          "value": {
+            "type": "string",
+            "required": true
+          },
+          "label": {
+            "type": "ReactNode",
+            "required": true
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "helperText": {
+            "type": "ReactNode"
+          }
+        }
+      },
       "props": {
         "name": {
           "type": "string",
@@ -489,10 +989,150 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size — standardized with `<Button>` and every other sized control. Drives both the radio dot diameter (via the same scale as `overrides.dotSize`) and the option label's font size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the group. Only needed outside a `<FormField label>`, whose label names it already."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names the group. Used instead of the inherited `<FormField>` label when set."
         }
       },
       "category": "Form Controls",
       "description": "Single-select radio control bound to Form context, data-driven or compositional"
+    },
+    {
+      "name": "RangeCalendar",
+      "import": "import { RangeCalendar } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name included in emitted `rangecalendar:changed` events."
+        },
+        "value": {
+          "type": "CalendarDateRange | null",
+          "description": "Controlled selected range, as `@internationalized/date` `CalendarDate`s\n-- never raw JS `Date`s at this boundary."
+        },
+        "defaultValue": {
+          "type": "CalendarDateRange | null",
+          "description": "Initial selected range (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: CalendarDateRange) => void",
+          "description": "Change handler. Receives the newly selected range once both ends are picked."
+        },
+        "minValue": {
+          "type": "CalendarDate",
+          "description": "Earliest selectable date, inclusive."
+        },
+        "maxValue": {
+          "type": "CalendarDate",
+          "description": "Latest selectable date, inclusive."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the whole calendar is non-interactive."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag controlling month/day names, week start day, and\ndate-grid layout. Fixed, not browser-auto-detected -- see `<TimeField>`'s\nown doc for why an explicit default prevents an SSR hydration mismatch."
+        },
+        "overrides": {
+          "type": "Partial<DatePickerSliceState>",
+          "description": "Per-instance override for grid cell size. `overrides.cellSize` wins over `size` below if both are set."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the calendar grid. Required for a meaningful accessible name unless `aria-labelledby` is given instead."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "Build a date range from two separate `<Calendar>`s with hand-written \"end must be after start\" logic",
+      "antiPatternInstead": "Use `<RangeCalendar>` (or `<DateRangePicker>` for a field + popover) — one grid, start/end ordering and keyboard range selection handled for you",
+      "description": "Month grid for selecting an inclusive range of dates (click the start, then the end), built on React Aria Components"
+    },
+    {
+      "name": "RangeSlider",
+      "import": "import { RangeSlider } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Element id, applied to the lower thumb. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted. Each thumb is named through `aria-labelledby` (see `aria-label`)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Used in event bus payloads."
+        },
+        "value": {
+          "type": "[number, number]",
+          "description": "Controlled `[lower, upper]` value."
+        },
+        "defaultValue": {
+          "type": "[number, number]",
+          "default": "[min, max]",
+          "description": "Initial `[lower, upper]` value (uncontrolled)."
+        },
+        "min": {
+          "type": "number",
+          "default": "0",
+          "description": "Minimum value."
+        },
+        "max": {
+          "type": "number",
+          "default": "100",
+          "description": "Maximum value."
+        },
+        "step": {
+          "type": "number",
+          "default": "1",
+          "description": "Step increment."
+        },
+        "minStepsBetweenThumbs": {
+          "type": "number",
+          "default": "0",
+          "description": "Minimum number of `step`s the two thumbs must stay apart. `0` lets them meet."
+        },
+        "onChange": {
+          "type": "(value: [number, number]) => void",
+          "description": "Change handler. Receives the new `[lower, upper]` value."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "If true, the slider is non-interactive."
+        },
+        "commitOnRelease": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Same as `<Slider>`'s `commitOnRelease`: notify only when a drag ends (or on a discrete keyboard step), while the thumbs still track the pointer."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the control as a whole. Only needed outside a\n`<FormField label=\"...\">`. Each thumb's name combines this (or the\nFormField's label) with its own suffix — \"Price, Minimum\" / \"Price,\nMaximum\" — since two thumbs can't share one `<label htmlFor>`."
+        },
+        "thumbLabels": {
+          "type": "[string, string]",
+          "default": "the locale's `rangeSlider.minimum` / `rangeSlider.maximum`",
+          "description": "Per-thumb name suffixes."
+        },
+        "overrides": {
+          "type": "Partial<SliderSliceState>",
+          "description": "Per-instance overrides for track height and thumb size. Shared with `<Slider>`."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Two-thumb range control (lower/upper bound) built on Base UI Slider, styled identically to Slider"
     },
     {
       "name": "Rating",
@@ -501,6 +1141,11 @@
         "name": {
           "type": "string",
           "description": "Field name included in emitted `rating:changed` events. Not a visible or accessible label -- see `aria-label`."
+        },
+        "aria-label": {
+          "type": "string",
+          "default": "'Rating'",
+          "description": "Accessible name for the control's radiogroup, for a screen-reader user\nwho otherwise has no visual context for what's being rated (e.g. no\nexternal heading/label already associated with it). `name` is never\nused for this -- it's an internal field identifier for emitted events,\nnot human-readable text."
         },
         "value": {
           "type": "number",
@@ -537,8 +1182,8 @@
       },
       "category": "Form Controls",
       "antiPatternAvoid": "Build a row of clickable star `<span>`s with manual hover/click state for a rating input",
-      "antiPatternInstead": "Use `<Rating>` — built on Radix `RadioGroup`, inherits real keyboard operability and `aria-checked` semantics instead of approximating them",
-      "description": "Star rating control built on Radix RadioGroup, or a read-only fractional-fill display"
+      "antiPatternInstead": "Use `<Rating>` — built on a Base UI radio group, inherits real keyboard operability and `aria-checked` semantics instead of approximating them",
+      "description": "Star rating control built on a Base UI radio group, or a read-only fractional-fill display"
     },
     {
       "name": "Select",
@@ -556,6 +1201,10 @@
           "type": "string",
           "default": "'Select option...'",
           "description": "Placeholder text when no value is selected."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the trigger. Only needed when this `Select` isn't\ninside a `<FormField label=\"...\">` — the `<label htmlFor>` that\nrenders provides the accessible name already in that case, the same\nway it does for `Input`/`Slider`/`Combobox`. Unlike those, `Select`\nhad no such escape hatch until this was added — a real gap for any\nstandalone (non-`FormField`) usage, the trigger's own selected-value\ntext notwithstanding (a combobox takes its name from a label, not from\nthe value it displays)."
         },
         "options": {
           "type": "SelectOptionData[]",
@@ -586,10 +1235,14 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
-      "description": "Dropdown select control bound to Form context, built on Radix Select"
+      "description": "Dropdown select control bound to Form context: a select-only combobox over the toolkit's own Listbox"
     },
     {
       "name": "Slider",
@@ -597,7 +1250,7 @@
       "props": {
         "id": {
           "type": "string",
-          "description": "Element id. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted — needed for `<FormField>`'s `<label htmlFor>` to associate with this control."
+          "description": "Element id for the thumb. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted. Inside a `<FormField label>`, the thumb's accessible name comes from that label via `aria-labelledby`."
         },
         "name": {
           "type": "string",
@@ -641,9 +1294,13 @@
           "default": "false",
           "description": "If true, `onChange`/`slider:changed` only fire once, when the drag\nends (or on a discrete keyboard step) — not continuously on every\ntick while dragging. The thumb still tracks the pointer smoothly\neither way (an internal buffer drives its visual position); this only\nchanges when the *consumer* is notified. Opt-in, not the default —\nlive per-tick updates are the right choice for most sliders (e.g. a\nreal-time value preview), including most of the Theme Designer's own\n(color/timing values, which don't feed back into layout). It matters\nfor a specific narrower case: a slider whose value feeds back into\nthe page's own layout — the Theme Designer's Master Font Size above\nall, since every `rem` value in the whole UI derives from it —  where\nrecalculating on every tick can resize or reposition the very slider\nbeing dragged out from under the pointer mid-gesture, not just waste\na render. Deferring to release keeps the drag itself trackable\nregardless of what the eventual committed value ends up changing."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "description": "Accessible name announced by screen readers. Only needed when this\n`Slider` isn't inside a `<FormField label=\"...\">` — the `<label\nhtmlFor>` that renders provides the accessible name already in that\ncase, the same way it does for `Input`/`Select`/`Combobox`."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names this control. Used instead of the inherited `<FormField>` label when set."
         },
         "overrides": {
           "type": "Partial<SliderSliceState>",
@@ -651,7 +1308,124 @@
         }
       },
       "category": "Form Controls",
-      "description": "Range input control built on Radix Slider"
+      "description": "Range input control built on Base UI Slider"
+    },
+    {
+      "name": "SubmitButton",
+      "import": "import { SubmitButton } from '#toolcrib'",
+      "props": {
+        "variant": {
+          "type": "'primary' | 'secondary' | 'outline' | 'danger' | 'ghost'",
+          "default": "'primary'",
+          "description": "Visual style variant.\n- `'primary'` — Filled with primary colour.\n- `'secondary'` — Filled with secondary colour.\n- `'outline'` — Transparent with border.\n- `'danger'` — Filled with error colour.\n- `'ghost'` — No background or border."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Button size controlling padding and font-size."
+        },
+        "paddingMode": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Override padding using the theme padding token scale."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "leadingIcon": {
+          "type": "ReactNode",
+          "description": "Icon rendered before the label text. Alias for `icon`."
+        },
+        "trailingIcon": {
+          "type": "ReactNode",
+          "description": "Icon rendered after the label text."
+        },
+        "icon": {
+          "type": "ReactNode",
+          "description": "Shorthand for `leadingIcon`."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour. Falls back to the nearest `<StyleDomainProvider>`'s if omitted."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a trigger button whose\ncorner needs to flatten against an open `<Popup>`/`<DropdownMenu>`.\nApplied after the button's own computed radius, so it wins."
+        },
+        "overrides": {
+          "type": "Partial<ButtonSliceState>",
+          "description": "Per-instance overrides for label weight and icon spacing. Separate from\n`subtheme` above (Button already resolves that itself via\n`useResolvedSubtheme`, unrelated to this slice's own two fields)."
+        }
+      },
+      "category": "Form Controls",
+      "description": "`<Button type=\"submit\">` that stays disabled while the enclosing Form is submitting; takes every Button prop, `ref` included"
+    },
+    {
+      "name": "Switch",
+      "import": "import { Switch } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label text rendered beside the switch."
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Controlled checked state."
+        },
+        "defaultChecked": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Initial checked state when neither `checked` nor a Form binding is present (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(checked: boolean) => void",
+          "description": "Change handler. Receives the new boolean value directly, like `<Checkbox>`'s."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance size override. Shared with `<Checkbox>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member.\nSee `<Button>`'s own identical prop for the general pattern."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Boolean on/off switch with a sliding track, bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable switch element"
+    },
+    {
+      "name": "Textarea",
+      "import": "import { Textarea } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "overrides": {
+          "type": "Partial<InputSliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for padding and border width. Shared with `<Input>`. Only applies at the default `size=\"md\"` — see `<Input>`'s own `size` doc."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Multi-line text input bound to Form context, sized and themed like Input"
     },
     {
       "name": "ThemeEditor",
@@ -716,6 +1490,18 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way and doesn't want `label` above rendering\na second, visually duplicate one — same reasoning as `<DatePicker>`'s\nown identical prop. Ignored if `label` is set. Required for a\nmeaningful accessible name unless `aria-labelledby` or `label` is\ngiven instead — without any of the three, React Aria's own\n`useTimeField` warns and the field has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
@@ -803,6 +1589,14 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. when this ToggleGroup is a\n`<UIGroup>` member and an ambient value from context isn't correct\nfor some other reason. Takes precedence over the value `<UIGroup>`\nitself supplies automatically — see `<Button>`'s own identical prop\nfor the general pattern."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the whole group (the root's `role=\"radiogroup\"`\nor `role=\"group\"`) — e.g. \"Row density\" for a set of density options. Distinct\nfrom each option's own accessible name (its `label`), the same way a\nnative `<fieldset><legend>` names the group without repeating into\nevery `<input>` inside it."
         }
       },
       "category": "Form Controls",
@@ -810,6 +1604,26 @@
     }
   ],
   "$defs": {
+    "CheckboxOption": {
+      "label": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Display label for this checkbox."
+      },
+      "value": {
+        "type": "string",
+        "required": true,
+        "description": "Value added to the group's array when this box is checked."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, this option can't be toggled."
+      },
+      "helperText": {
+        "type": "ReactNode",
+        "description": "Additional help text below the option label."
+      }
+    },
     "ListboxOptionData": {
       "label": {
         "type": "string",
@@ -864,6 +1678,10 @@
       "disabled": {
         "type": "boolean",
         "description": "If true, the option is visible but not selectable."
+      },
+      "textValue": {
+        "type": "string",
+        "description": "Plain text for typeahead matching when `label` isn't a plain string\n(an icon plus text, say). Defaults to the text found in `label`."
       }
     },
     "ToggleGroupOption": {

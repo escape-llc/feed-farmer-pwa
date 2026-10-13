@@ -10,7 +10,9 @@
    not a real bug -- this renders and tests correctly today. Scoped to just
    this one rule for this file; every other react-hooks rule still applies. */
 import React, { type ReactNode, createContext, useContext, useState } from 'react';
-import { RadioGroup as RadioGroupPrimitive } from 'radix-ui';
+import { useFieldsetDisabled } from '../Fieldset/FieldsetContext';
+import { RadioGroup as BaseRadioGroup } from '@base-ui/react/radio-group';
+import { Radio } from '@base-ui/react/radio';
 import { useOptionalFormContext } from './FormContext';
 import { FieldContext } from './FieldContext';
 import { getSparseVariables } from '../../theme/slice';
@@ -57,6 +59,10 @@ export interface RadioGroupProps {
   overrides?: Partial<RadioGroupSliceState>;
   /** Control size — standardized with `<Button>` and every other sized control. Drives both the radio dot diameter (via the same scale as `overrides.dotSize`) and the option label's font size. @default 'md' */
   size?: ControlSize;
+  /** Accessible name for the group. Only needed outside a `<FormField label>`, whose label names it already. */
+  'aria-label'?: string;
+  /** Id of the element that names the group. Used instead of the inherited `<FormField>` label when set. */
+  'aria-labelledby'?: string;
 }
 
 interface RadioGroupContextValue {
@@ -83,10 +89,13 @@ export const RadioGroup: React.FC<RadioGroupProps> & {
   options,
   direction = 'vertical',
   children,
-  disabled = false,
+  disabled: disabledProp = false,
   overrides,
   size = 'md',
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }) => {
+  const disabled = useFieldsetDisabled(disabledProp);
   const fieldCtx = useContext(FieldContext);
   const fieldName = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
@@ -106,7 +115,8 @@ export const RadioGroup: React.FC<RadioGroupProps> & {
   // stable for the form's lifetime (see FormContext.tsx), so this now only
   // fires when fieldName actually changes.
   React.useEffect(() => {
-    if (fieldName && registerField) registerField(fieldName);
+    if (fieldName && registerField) registerField(fieldName, defaultValue ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a typed seed (#667), read once like any default
   }, [fieldName, registerField]);
 
   // `?? ''` (not left as plain `formContext.values[fieldName]`) matters for
@@ -115,22 +125,22 @@ export const RadioGroup: React.FC<RadioGroupProps> & {
   // with no `initialValues` entry reads as `undefined` here for exactly
   // one paint, then flips to `''` once registerField's effect commits —
   // a real "component is changing from uncontrolled to controlled" React
-  // warning (Radix's RadioGroupPrimitive.Root gets `value={undefined}`,
+  // warning (the group primitive gets `value={undefined}`,
   // then `value={''}`), invisible in this suite until a global
   // console.error/warn assertion actually looked for it. Resolving to `''`
   // immediately here — matching what registerField is about to set
   // anyway — keeps this control controlled from its very first render
   // whenever it's form-bound, same fix `<Input>`'s own `formContext.values[name]
   // ?? ''` already applies.
-  const formValue = fieldName && formContext ? formContext.values[fieldName] ?? '' : undefined;
+  const formValue = fieldName && formContext ? formContext.values[fieldName] ?? defaultValue ?? '' : undefined;
   // Standalone (no `value` prop, no Form ancestor) needs its own live,
   // updating value -- not just `defaultValue` echoed back unchanged --
   // because `RadioGroup.Option`'s own checked styling below reads
-  // `ctx.selectedValue` from this component's context, not from Radix's
-  // internal per-item DOM state, so it never updates on its own the way
-  // Radix's own indicator would. Without this, a standalone
+  // `ctx.selectedValue` from this component's context, not from the
+  // primitive's internal per-item state, so it never updates on its own the
+  // way the primitive's indicator would. Without this, a standalone
   // `<RadioGroup defaultValue="a">` looked identical to a fully controlled
-  // one from Radix's perspective (a `value` prop that's non-undefined on
+  // one from the primitive's perspective (a `value` prop that's non-undefined on
   // every render) with nothing ever feeding a new value back down after a
   // click -- the same class of freeze found live in `<DatePicker>`/
   // `<TimeField>` (see their own comments), just requiring a different fix
@@ -162,11 +172,12 @@ export const RadioGroup: React.FC<RadioGroupProps> & {
         size,
       }}
     >
-      <RadioGroupPrimitive.Root
+      <BaseRadioGroup
         value={stringVal}
-        onValueChange={handleChange}
+        onValueChange={v => handleChange(String(v))}
         disabled={disabled}
         className="ai-focus-ring"
+        {...(ariaLabel ? { 'aria-label': ariaLabel } : { 'aria-labelledby': ariaLabelledBy ?? fieldCtx.labelId })}
         style={{
           display: 'flex',
           flexDirection: direction === 'horizontal' ? 'row' : 'column',
@@ -188,7 +199,7 @@ export const RadioGroup: React.FC<RadioGroupProps> & {
               />
             ))
           : children}
-      </RadioGroupPrimitive.Root>
+      </BaseRadioGroup>
     </RadioGroupContext.Provider>
   );
 };
@@ -213,7 +224,7 @@ RadioGroup.Option = ({ value, label, disabled: optionDisabled, helperText }) => 
         userSelect: 'none',
       }}
     >
-      <RadioGroupPrimitive.Item
+      <Radio.Root
         value={value}
         disabled={isDisabled}
         className="ai-focus-ring"
@@ -227,7 +238,11 @@ RadioGroup.Option = ({ value, label, disabled: optionDisabled, helperText }) => 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          transition: 'all 0.15s ease',
+          // No inline transition -- .ai-focus-ring's own shared rule
+          // (interactionStyles.ts) already covers border-color and
+          // box-shadow and is !important, so this (like the `all: 'unset'`
+          // above) would be silently discarded outright, not just
+          // redundant (issue #411).
           boxShadow: isChecked ? '0 0 0 0.125rem var(--ai-focus-ring, rgba(59, 130, 246, 0.2))' : 'none',
           marginTop: '0.125rem',
           flexShrink: 0,
@@ -235,7 +250,7 @@ RadioGroup.Option = ({ value, label, disabled: optionDisabled, helperText }) => 
           cursor: isDisabled ? 'not-allowed' : 'pointer',
         }}
       >
-        <RadioGroupPrimitive.Indicator
+        <Radio.Indicator
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -252,8 +267,8 @@ RadioGroup.Option = ({ value, label, disabled: optionDisabled, helperText }) => 
               background: 'var(--ai-color-primary, #3b82f6)',
             }}
           />
-        </RadioGroupPrimitive.Indicator>
-      </RadioGroupPrimitive.Item>
+        </Radio.Indicator>
+      </Radio.Root>
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <span

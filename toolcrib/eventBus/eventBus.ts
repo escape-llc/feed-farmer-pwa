@@ -21,6 +21,8 @@ export interface AIEventMap {
   // Observer & Adaptive Sizing Events
   'element:resized': { id?: string; target: HTMLElement; width: number; height: number; contentHeight: number };
   'element:intersected': { id?: string; target: HTMLElement; isIntersecting: boolean; ratio: number };
+  /** `target` is the exact node the mutation occurred on -- with `subtree: true`, this can be a DESCENDANT of whichever element `useMutationObserver`'s own `ref` points to, not that element itself (unlike `element:resized`/`element:intersected`, whose `target` is always the literal observed element -- a real MutationObserver API asymmetry, not an oversight). */
+  'element:mutated': { id?: string; target: Node; type: MutationRecordType; attributeName: string | null; oldValue: string | null };
   'viewport:resized': { width: number; height: number };
   'popup:shown': { id: string; targetId?: string; data?: any };
   'popup:hidden': { id: string };
@@ -35,8 +37,9 @@ export interface AIEventMap {
   'form:submitted': { formId?: string; values: Record<string, any> };
   'form:validated': { formId?: string; isValid: boolean };
   'form:errored': { formId?: string; errors: Record<string, string> };
-  'toast:shown': { id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent' };
-  'toast:added': { id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent' };
+  'toast:shown': { id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent'; loading?: boolean };
+  'toast:updated': { id: string; type: SubthemeName; message: string; loading?: boolean };
+  'toast:added': { id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent'; loading?: boolean };
   'toast:expired': { id: string; message?: string; type?: string };
   'toast:dismissed': { id: string; message?: string; type?: string; reason?: 'user' | 'expired' | 'action' };
   'toast:action_clicked': { id: string; actionLabel: string; message?: string };
@@ -60,11 +63,18 @@ export interface AIEventMap {
   'combobox:changed': { name?: string; value: string | string[] };
   'fileupload:changed': { name?: string; fileCount: number };
   'slider:changed': { name?: string; value: number };
+  'rangeslider:changed': { name?: string; value: [number, number] };
   'toggle:changed': { name?: string; pressed: boolean };
   'rating:changed': { name?: string; value: number };
   'datepicker:changed': { name?: string; value: string | null };
   'calendar:changed': { name?: string; value: string | null };
+  'daterangepicker:changed': { name?: string; value: { start: string; end: string } | null };
+  'rangecalendar:changed': { name?: string; value: { start: string; end: string } };
+  'alert:dismissed': { id?: string; subtheme?: string };
   'timefield:changed': { name?: string; value: string | null };
+  'numberfield:changed': { name?: string; value: number | null };
+  'checkboxgroup:changed': { name?: string; value: string[] };
+  'otpfield:changed': { name?: string; value: string; complete: boolean };
   'togglegroup:changed': { name?: string; value: string | string[] };
   'progress:changed': { id?: string; value: number; max: number };
   'carousel:changed': { id?: string; activeIndex: number; previousIndex?: number };
@@ -75,11 +85,30 @@ export interface AIEventMap {
   'viewer:shown': { id?: string };
   'viewer:hidden': { id?: string };
   'stepper:changed': { id?: string; activeIndex: number; previousIndex?: number };
-  'datatable:sorted': { id?: string; key: string | null; direction: 'asc' | 'desc' };
+  /** `sortBy` is the whole multi-column sort in priority order (empty when unsorted) -- see issue #337; a real payload shape change from the previous single `key`/`direction` pair, not an addition alongside it. */
+  'datatable:sorted': { id?: string; sortBy: { key: string; direction: 'asc' | 'desc' }[] };
+  /** Emitted whenever `<DataTable quickFilter>`'s search value changes -- `matchCount` is how many rows matched at that moment (post-filter, pre-sort/pagination). */
+  'datatable:filtered': { id?: string; value: string; matchCount: number };
   'datatable:paginated': { id?: string; page: number; pageSize: number };
   'datatable:selection_changed': { id?: string; selectedKeys: string[] };
   'pagination:changed': { id?: string; page: number; pageSize: number };
   'datatable:row_clicked': { id?: string; index: number };
+  /** Emitted by a `<DataTable rowCommands>` action button click -- `command` is that command's own `id`, `key` is the row's resolved selection/row key (stringified `rowKey`, or the index-based fallback). */
+  'datatable:row_command': { id?: string; command: string; key: string; index: number };
+  /** Emitted whenever `<DataTable densitySelector>`'s density changes, whether controlled or uncontrolled -- see issue #339. */
+  'datatable:density_changed': { id?: string; density: 'compact' | 'normal' | 'spacious' };
+  /** Emitted once per crossing of `endReachedThreshold` while continuous-scrolling (`pagination={false}`) -- see issue #365 and `onEndReached`'s own doc. `loadedCount` is how many rows are currently loaded (the same number a listener would otherwise re-derive from `data.length`). */
+  'datatable:end_reached': { id?: string; loadedCount: number };
+  /** Emitted whenever `<DataTable csvExport>`'s built-in export button downloads a CSV -- `rowCount` is the full filtered + sorted dataset's size (every exported row, across every page), not just the current page's. See issue #338. */
+  'datatable:exported': { id?: string; rowCount: number };
+  /** Emitted whenever `<DataTable columnVisibility>`'s show/hide state changes, whether controlled or uncontrolled -- `hiddenColumns` is the FULL current set of hidden `Column.key`s, not just the one that changed. See issue #340. */
+  'datatable:columns_changed': { id?: string; hiddenColumns: string[] };
+  /** Emitted whenever `<DataTable editable>`'s editing key-set gains a key -- `key` is the row's resolved `rowKey` (stringified), `index` its position in the raw `data` array (editable requires a real `rowKey`, so there's no index-fallback ambiguity here the way `datatable:row_command` has). See issue #545. */
+  'datatable:row_edit_started': { id?: string; key: string; index: number };
+  /** Emitted once a co-grid row's Save commits -- `values` is the edit schema's own `safeParse().data`, never the raw field strings (mirrors `<Form>`'s own `form:submitted` contract). See issue #545. */
+  'datatable:row_edit_saved': { id?: string; key: string; index: number; values: unknown };
+  /** Emitted when a co-grid row's Cancel discards its draft. See issue #545. */
+  'datatable:row_edit_cancelled': { id?: string; key: string; index: number };
   'log:cleared': { timestamp: string };
 
   // Routing
@@ -111,6 +140,15 @@ export interface AIEventMap {
 export type EventKey = keyof AIEventMap;
 export type EventCallback<K extends EventKey> = (event: AIEventMap[K]) => void;
 
+/** @barrelExport */
+export interface WildcardEvent {
+  /** The event-bus channel name (e.g. `'modal:shown'`, `'form:submitted'`). */
+  type: EventKey;
+  /** That channel's own, unmodified payload. */
+  detail: AIEventMap[EventKey];
+}
+export type WildcardCallback = (event: WildcardEvent) => void;
+
 /**
  * Events marked sticky replay their last-emitted payload(s) to a new
  * subscriber immediately upon `on()`, synchronously, before any future
@@ -135,6 +173,7 @@ const STICKY_EVENTS = new Set<EventKey>(['tab:changed']);
 
 class AIEventBus {
   private listeners: { [K in EventKey]?: Set<EventCallback<K>> } = {};
+  private wildcardListeners = new Set<WildcardCallback>();
   private stickyValues: { [K in EventKey]?: Map<string, AIEventMap[K]> } = {};
   // STICKY_EVENTS is a hand-maintained Set, and stickyDiscriminator reads
   // `.id` through an `any` cast (TypeScript can't express "every AIEventMap
@@ -170,6 +209,16 @@ class AIEventBus {
    * Subscribe to a strongly-typed event. Returns an unsubscribe function.
    * For events in `STICKY_EVENTS`, immediately replays any already-known
    * last value(s) to `callback` before returning.
+   *
+   * `'*'` is not a real `EventKey` and is no longer accepted here (it
+   * previously reached the wildcard stream via `on('*' as any, cb)`, an
+   * internal, type-cast-only mechanism, before `onAny` existed as its own
+   * sanctioned API) -- use `onAny`/`useAnyAIEvent` instead. Deliberately
+   * not kept as a compatibility shim: toolcrib is vendored via reviewed
+   * patches, not an npm dependency under a semver contract, so a consumer
+   * project's own AI agent reading this diff is expected to update the
+   * one call site rather than have this bus carry a parallel legacy path
+   * indefinitely. See AGENTS.md's own note on this policy.
    */
   on<K extends EventKey>(event: K, callback: EventCallback<K>): () => void {
     if (!this.listeners[event]) {
@@ -200,6 +249,23 @@ class AIEventBus {
   }
 
   /**
+   * Subscribe to every event the bus ever emits, receiving `{ type, detail
+   * }` for each one -- `type` is the channel name, `detail` its own
+   * unmodified payload. This is the same wildcard mechanism `emit()`
+   * already dispatches to internally; exposed here as a real, typed API
+   * rather than the `on('*' as any, cb)` cast previously required to reach
+   * it. Intended for cross-cutting concerns spanning every channel at once
+   * (event monitoring, `useInteractionAnalytics`) rather than reacting to
+   * one event.
+   */
+  onAny(callback: WildcardCallback): () => void {
+    this.wildcardListeners.add(callback);
+    return () => {
+      this.wildcardListeners.delete(callback);
+    };
+  }
+
+  /**
    * Emit an event payload to all active subscribers.
    */
   emit<K extends EventKey>(event: K, payload: AIEventMap[K]): void {
@@ -221,17 +287,14 @@ class AIEventBus {
       });
     }
 
-    // Notify wildcard subscribers (e.g. for event monitoring)
-    const wildcardSet = (this.listeners as any)['*'];
-    if (wildcardSet) {
-      wildcardSet.forEach((callback: any) => {
-        try {
-          callback({ type: event, detail: payload });
-        } catch (err) {
-          console.error(`Error in AIEventBus wildcard subscriber for "${event}":`, err);
-        }
-      });
-    }
+    // Notify wildcard subscribers (e.g. for event monitoring, interaction analytics)
+    this.wildcardListeners.forEach(callback => {
+      try {
+        callback({ type: event, detail: payload });
+      } catch (err) {
+        console.error(`Error in AIEventBus wildcard subscriber for "${event}":`, err);
+      }
+    });
   }
 
   /**
@@ -307,6 +370,34 @@ class AIEventBus {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     this.emit('toast:shown', { id, type, message, priority });
     return id;
+  }
+
+  /**
+   * One toast for the life of a promise: a loading toast (spinner, no
+   * auto-dismiss) while it's pending, updated in place to success or error
+   * when it settles, then dismissing on the normal timer. `success`/`error`
+   * can be functions of the result or the rejection reason. Returns the
+   * same promise, so the caller can still `await` it (a rejection still
+   * reaches the caller; it isn't swallowed).
+   * @manifestReturns the same promise, for awaiting
+   */
+  showToastPromise<T>(
+    promise: Promise<T>,
+    messages: { loading: string; success: string | ((value: T) => string); error: string | ((reason: unknown) => string) }
+  ): Promise<T> {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    this.emit('toast:shown', { id, type: 'info', message: messages.loading, loading: true });
+    promise.then(
+      value => {
+        const message = typeof messages.success === 'function' ? messages.success(value) : messages.success;
+        this.emit('toast:updated', { id, type: 'success', message, loading: false });
+      },
+      (reason: unknown) => {
+        const message = typeof messages.error === 'function' ? messages.error(reason) : messages.error;
+        this.emit('toast:updated', { id, type: 'error', message, loading: false });
+      }
+    );
+    return promise;
   }
 }
 

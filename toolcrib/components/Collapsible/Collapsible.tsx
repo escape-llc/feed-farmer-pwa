@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useState, type ReactNode } from 'react';
-import { Collapsible as CollapsiblePrimitive } from 'radix-ui';
+import { Collapsible as BaseCollapsible } from '@base-ui/react/collapsible';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
+import { useOwnEmit } from '../../eventBus/useOwnEmit';
 import { useStableId } from '../shared/useStableId';
 import { getSparseVariables } from '../../theme/slice';
 import { useInjectInteractionStyles } from '../../theme/interactionStyles';
@@ -16,32 +17,34 @@ const COLLAPSIBLE_STYLE_ID = 'toolcrib-collapsible-styles';
 
 // Same rationale as Accordion's own injectAccordionStyles (and Toast's
 // injectToastAnimations before that): the expand/collapse animation needs a
-// *different* keyframe depending on [data-state="open"/"closed"], which an
+// *different* keyframe depending on [data-open]/[data-closed] (Base UI, #702), which an
 // inline style.animation can't express (its value doesn't change between
 // renders just because a data-attribute did, so the browser never restarts
 // it) -- only a real stylesheet rule reacting to the attribute change can.
 // This component previously had no CSS height animation at all (reported
-// directly: "the Collapsible component does not animate") -- Radix's own
-// [data-state] toggling just showed/hid the panel instantly.
+// directly: "the Collapsible component does not animate") -- the
+// primitive's own state toggling just showed/hid the panel instantly.
 function injectCollapsibleStyles(targetDocument?: Document, nonce?: string): void {
   injectGlobalStyle(
     COLLAPSIBLE_STYLE_ID,
     `
     @keyframes ai-collapsible-slide-down {
       from { height: 0; opacity: 0; }
-      to { height: var(--radix-collapsible-content-height); opacity: 1; }
+      to { height: var(--collapsible-panel-height); opacity: 1; }
     }
     @keyframes ai-collapsible-slide-up {
-      from { height: var(--radix-collapsible-content-height); opacity: 1; }
+      from { height: var(--collapsible-panel-height); opacity: 1; }
       to { height: 0; opacity: 0; }
     }
     .ai-collapsible-content {
       overflow: hidden;
+      /* Keyframe-driven: the theme-wide transition rule would give Base UI a second animation type to detect on this panel (it warns, and has to guess which one to wait on). */
+      transition: none;
     }
-    .ai-collapsible-content[data-state="open"] {
+    .ai-collapsible-content[data-open] {
       animation: ai-collapsible-slide-down 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .ai-collapsible-content[data-state="closed"] {
+    .ai-collapsible-content[data-closed] {
       animation: ai-collapsible-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
     `,
@@ -101,6 +104,8 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
   const [internalIsOpen, setInternalIsOpen] = useState(defaultOpen);
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
 
+  // Own emissions are marked so the listeners below skip their echo (#705).
+  const { emitOwn, isOwnEcho } = useOwnEmit();
   const handleOpenChange = (open: boolean, fromBus = false) => {
     if (externalIsOpen === undefined) {
       setInternalIsOpen(open);
@@ -109,25 +114,25 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
       onOpenChange(open);
     }
     if (!fromBus) {
-      aiBus.emit(open ? 'collapsible:opened' : 'collapsible:closed', { id });
+      emitOwn(() => aiBus.emit(open ? 'collapsible:opened' : 'collapsible:closed', { id }));
     }
   };
 
   useAIEvent('collapsible:opened', e => {
-    if (e.id === id && !isOpen) handleOpenChange(true, true);
+    if (e.id === id && !isOpen && !isOwnEcho()) handleOpenChange(true, true);
   });
   useAIEvent('collapsible:closed', e => {
-    if (e.id === id && isOpen) handleOpenChange(false, true);
+    if (e.id === id && isOpen && !isOwnEcho()) handleOpenChange(false, true);
   });
 
   return (
-    <CollapsiblePrimitive.Root
+    <BaseCollapsible.Root
       open={isOpen}
       onOpenChange={open => handleOpenChange(open)}
       disabled={disabled}
       style={{ width: '100%', ...collapsibleVars }}
     >
-      <CollapsiblePrimitive.Trigger
+      <BaseCollapsible.Trigger
         className="ai-btn"
         style={{
           all: 'unset',
@@ -144,7 +149,10 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
           color: 'var(--ai-text-primary, #111827)',
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.6 : 1,
-          transition: 'background 0.15s ease',
+          // No inline transition here -- .ai-btn's own shared rule
+          // (interactionStyles.ts) already covers background-color and
+          // is !important, so this component's own attempt would be
+          // silently discarded outright, not just redundant (issue #411).
           ['--ai-btn-bg' as string]: 'var(--ai-bg-container, #f9fafb)',
         }}
       >
@@ -154,14 +162,14 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
             fontSize: '0.75rem',
             color: 'var(--ai-text-secondary, #6b7280)',
             transform: isOpen ? 'rotate(180deg)' : 'none',
-            transition: 'transform 0.15s ease',
+            transition: 'transform var(--ai-transition-duration-fast, 0.15s) var(--ai-transition-easing, ease)',
           }}
         >
           ▼
         </span>
-      </CollapsiblePrimitive.Trigger>
+      </BaseCollapsible.Trigger>
 
-      <CollapsiblePrimitive.Content
+      <BaseCollapsible.Panel
         className="ai-collapsible-content"
         style={{
           // No padding/font styling directly here, deliberately — this is
@@ -184,7 +192,7 @@ export const Collapsible: React.FC<CollapsibleProps> = ({
         >
           {children}
         </div>
-      </CollapsiblePrimitive.Content>
-    </CollapsiblePrimitive.Root>
+      </BaseCollapsible.Panel>
+    </BaseCollapsible.Root>
   );
 };

@@ -27,8 +27,28 @@ export interface ToolcribLocaleStrings {
     showingEntries: (from: number, to: number, total: number) => string;
     rowsPerPage: string;
     perPageOption: (size: number) => string;
+    /** Label for the page-size dropdown's live-computed-page-size option (issue #419). */
+    perPageAutoOption: string;
+    firstPage: string;
     previousPage: string;
     nextPage: string;
+    lastPage: string;
+    /** Placeholder and accessible name for `<DataTable quickFilter>`'s search input. */
+    quickFilterPlaceholder: string;
+    /** Accessible group label for `<DataTable densitySelector>`'s compact/normal/spacious toggle-button-group. */
+    densityLabel: string;
+    /** Accessible name (`aria-label`-equivalent, via a `<VisuallyHidden>` label) for one density option button -- the toggle itself is icon-only (issue #591), so this is never rendered as visible text. */
+    densityOptionLabel: (density: 'compact' | 'normal' | 'spacious') => string;
+    /** Accessible name (`aria-label`) for `<DataTable csvExport>`'s built-in export button -- icon-only (issue #591), never rendered as visible text. */
+    exportCsvLabel: string;
+    /** Accessible name (`aria-label`) for `<DataTable columnVisibility>`'s built-in "Columns" trigger button -- icon-only (issue #591), never rendered as visible text. */
+    columnsButtonLabel: string;
+    /** Label for the `columnVisibility` menu's own checkbox item toggling `rowCommands`' trailing actions column -- that column isn't a real `Column<T>` with its own `title`, so it needs a label of its own. */
+    actionsColumnLabel: string;
+    /** Accessible name (`aria-label`) for `<DataTable editable>`'s co-grid collapse toggle while the co-grid is expanded (issue #545) -- the toggle itself is icon-only (issue #584), so this is never rendered as visible text. */
+    hideEditingLabel: string;
+    /** Accessible name for the same toggle while collapsed -- the visible content is a chevron icon plus a count badge of rows currently being edited. */
+    showEditingLabel: string;
   };
   carousel: {
     previousSlide: string;
@@ -63,6 +83,18 @@ export interface ToolcribLocaleStrings {
     clearSelection: string;
     removeItem: (label: string) => string;
   };
+  /** `<Input clearable>`'s own trailing-edge clear button (issue #428). */
+  input: {
+    clear: string;
+    /** Accessible name of the password reveal toggle. Stays fixed while toggled — the on/off state is carried by `aria-pressed`, per the WAI-ARIA toggle button pattern, not by swapping the label. */
+    showPassword: string;
+  };
+  rangeSlider: {
+    /** Suffix naming a `RangeSlider`'s lower thumb, combined with the field's own label (e.g. "Price, Minimum"). */
+    minimum: string;
+    /** Suffix naming a `RangeSlider`'s upper thumb. */
+    maximum: string;
+  };
   listbox: {
     /** Announced via a visually-hidden `aria-live` region whenever `loading` transitions to true -- a debounced async search (`Combobox`'s own `onSearch`) starting, with no other signal a screen-reader user would get. */
     loadingAnnouncement: string;
@@ -70,6 +102,26 @@ export interface ToolcribLocaleStrings {
     noResultsAnnouncement: string;
     /** Announced when `loading` transitions to false and options are present. `count` is the number of options now shown. */
     resultsAnnouncement: (count: number) => string;
+  };
+  alert: {
+    /** Accessible name of `<Alert onDismiss>`'s close button. */
+    dismiss: string;
+  };
+  otpField: {
+    /** Accessible name of one `<OTPField>` cell in numeric mode; `position` is 1-based. */
+    digit: (position: number, total: number) => string;
+    /** Accessible name of one `<OTPField>` cell in alphanumeric mode; `position` is 1-based. */
+    character: (position: number, total: number) => string;
+  };
+  stat: {
+    /** Spoken form of `<Stat>`'s change when the value went up; `change` is the formatted size of the move, e.g. "12.4%". */
+    up: (change: string) => string;
+    /** Spoken form when the value went down. */
+    down: (change: string) => string;
+    /** Spoken form when the change is zero. */
+    unchanged: string;
+    /** Accessible name of `<Stat>`'s trend line; `label` is the stat's own label. */
+    trend: (label: string) => string;
   };
 }
 
@@ -91,8 +143,19 @@ export const defaultLocaleStrings: ToolcribLocaleStrings = {
     showingEntries: (from, to, total) => `Showing ${from} to ${to} of ${total} entries`,
     rowsPerPage: 'Rows per page',
     perPageOption: (size) => `${size} per page`,
+    perPageAutoOption: 'Auto',
+    firstPage: 'First page',
     previousPage: 'Previous page',
     nextPage: 'Next page',
+    lastPage: 'Last page',
+    quickFilterPlaceholder: 'Search…',
+    densityLabel: 'Row density',
+    densityOptionLabel: (density) => density.charAt(0).toUpperCase() + density.slice(1),
+    exportCsvLabel: 'Export CSV',
+    columnsButtonLabel: 'Columns',
+    actionsColumnLabel: 'Actions',
+    hideEditingLabel: 'Hide editing',
+    showEditingLabel: 'Show editing',
   },
   carousel: {
     previousSlide: 'Previous slide',
@@ -125,10 +188,31 @@ export const defaultLocaleStrings: ToolcribLocaleStrings = {
     clearSelection: 'Clear selection',
     removeItem: (label) => `Remove ${label}`,
   },
+  input: {
+    clear: 'Clear',
+    showPassword: 'Show password',
+  },
+  rangeSlider: {
+    minimum: 'Minimum',
+    maximum: 'Maximum',
+  },
   listbox: {
     loadingAnnouncement: 'Loading results…',
     noResultsAnnouncement: 'No results found',
     resultsAnnouncement: (count) => `${count} result${count === 1 ? '' : 's'} available`,
+  },
+  alert: {
+    dismiss: 'Dismiss',
+  },
+  otpField: {
+    digit: (position, total) => `Digit ${position} of ${total}`,
+    character: (position, total) => `Character ${position} of ${total}`,
+  },
+  stat: {
+    up: (change) => `Up ${change}`,
+    down: (change) => `Down ${change}`,
+    unchanged: 'No change',
+    trend: (label) => `${label} trend`,
   },
 };
 

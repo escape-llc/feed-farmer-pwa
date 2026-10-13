@@ -1,3 +1,5 @@
+<!-- Generated from ai-docs/templates/examples/ssr-theme-injection.md.hbs via `npm run generate-docs` -- do not hand-edit; edit the .hbs template and regenerate instead. -->
+
 # Worked Example: SSR-Safe Theme Injection
 
 `<ThemeProvider>` injects every `--ai-*` CSS variable via a client-only
@@ -16,8 +18,11 @@ import {
   TOOLCRIB_TYPOGRAPHY_BASE_STYLE_ID,
   TOOLCRIB_RESPONSIVE_STYLE_ID,
   TOOLCRIB_THEME_TRANSITIONS_STYLE_ID,
+  TOOLCRIB_LINK_STYLE_ID,
+  TOOLCRIB_SCROLLBAR_STYLE_ID,
 } from '#toolcrib';
 import { TOOLCRIB_SHARED_KEYFRAMES_STYLE_ID } from '#toolcrib';
+import { TOOLCRIB_LIVING_COLOR_STYLE_ID } from '#toolcrib';
 ```
 
 `injectGlobalStyle`/`upsertGlobalStyle` — the mechanism `<ThemeProvider>`'s
@@ -40,6 +45,9 @@ import {
   TOOLCRIB_RESPONSIVE_STYLE_ID,
   TOOLCRIB_SHARED_KEYFRAMES_STYLE_ID,
   TOOLCRIB_THEME_TRANSITIONS_STYLE_ID,
+  TOOLCRIB_LINK_STYLE_ID,
+  TOOLCRIB_LIVING_COLOR_STYLE_ID,
+  TOOLCRIB_SCROLLBAR_STYLE_ID,
 } from '#toolcrib';
 import { Providers } from './providers'; // a client component wrapping <ThemeProvider>
 
@@ -54,6 +62,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <style id={TOOLCRIB_TYPOGRAPHY_BASE_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.typographyCSS }} />
         <style id={TOOLCRIB_SHARED_KEYFRAMES_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.keyframesCSS }} />
         <style id={TOOLCRIB_THEME_TRANSITIONS_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.transitionsCSS }} />
+        <style id={TOOLCRIB_LINK_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.linkCSS }} />
+        <style id={TOOLCRIB_LIVING_COLOR_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.livingColorCSS }} />
+        <style id={TOOLCRIB_SCROLLBAR_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.scrollbarCSS }} />
         {theme.responsiveCSS && (
           <style id={TOOLCRIB_RESPONSIVE_STYLE_ID} dangerouslySetInnerHTML={{ __html: theme.responsiveCSS }} />
         )}
@@ -81,7 +92,7 @@ The client's own injection effect writes these as inline properties on
 idempotent (setting the same custom property to the same value twice has
 no effect), so there's no id-based dedup to align with here. Render
 `rootVariablesCSS` under any `<style>` tag; the exact ids above only
-matter for the other four pieces.
+matter for the other pieces.
 
 ## CSP nonce
 

@@ -1,8 +1,17 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
-import { Toast as ToastPrimitive } from 'radix-ui';
-import { type ToastItem, useToast } from './ToastContext';
+// The toast stack on Base UI's Toast (#670, #698), rendered from the manager
+// ToastProvider (ToastContext.tsx) feeds. Two deliberate departures from
+// Base UI's defaults, both documented where they happen:
+//   - announcements come from ToastAnnouncer's own live regions, not Base
+//     UI's (mui/base-ui#5659: a high-priority toast is aria-hidden yet
+//     focusable);
+//   - each toast is a named role="group", not a dialog.
+// Stacking stays the toolkit's FIFO order, computed from Base UI's measured
+// heights (Base UI's own --toast-offset-y stacks newest-first).
+import React, { useEffect, useRef, useState } from 'react';
+import { Toast as BaseToast } from '@base-ui/react/toast';
+import { type ToastAnchor, type ToastItem, type ToastManagerData, useToast, useToastActions } from './ToastContext';
 import { aiBus } from '../../eventBus/eventBus';
 import { Z_INDEX } from '../../theme/zIndex';
 import { injectGlobalStyle } from '../../theme/injectGlobalStyle';
@@ -11,93 +20,52 @@ import { useTargetDocument } from '../../theme/targetDocumentContext';
 import { useNonce } from '../../theme/nonceContext';
 import { resolveColorVariant } from '../../theme/colorVariant';
 import { useLocaleStrings } from '../Locale/LocaleContext';
+import { Spinner } from '../Spinner/Spinner';
+import { VisuallyHidden } from '../Layout/VisuallyHidden';
 
-const TOAST_STYLE_ID = 'toolcrib-toast-animations';
+const STACK_GAP_PX = 10;
+const ESTIMATED_HEIGHT_PX = 72;
+/** The viewport's own `padding`, on the theme's density scale (a shorthand token, fine for `padding`). */
+const VIEWPORT_PADDING = 'var(--ai-padding-xl, 1rem)';
+/**
+ * Each toast's `top`/`right`/`bottom`/`left` inset: a single-length literal on
+ * purpose. `--ai-padding-xl` can resolve to two values ("1rem 1.5rem"), which
+ * is invalid for a single-length property, and an invalid `var()` silently
+ * resets the whole declaration to `auto` -- the bug that once put
+ * bottom-anchored toasts near the top. No single-value token in the scale
+ * fits (`--ai-padding-xs` is far too tight).
+ */
+const ITEM_INSET = '1rem';
 
-// Radix's Toast Root is wrapped in Presence: once `open` goes false (i.e.
-// `data-state` flips to "closed"), Presence keeps the DOM node mounted
-// until a real `animationend` fires on it before actually removing it —
-// confirmed the hard way for Tooltip (see Tooltip.tsx's own comment on the
-// exact same class of bug). An inline `style.animation` can't express
-// "play THIS keyframe on data-state=open, a DIFFERENT one on closed" (its
-// value doesn't change between renders just because a data-attribute did,
-// so the browser never restarts it) — real `[data-state]`/`[data-swipe]`
-// selectors need a real stylesheet, hence injecting one instead of relying
-// on inline styles like the rest of this component's styling does.
-//
-// The exit keyframes also animate `grid-template-rows` themselves, folding
-// the fade/swipe AND the box-collapse into one single `animation` rather
-// than a separate later `transition` driven by React state. This isn't a
-// style preference: Presence is UNCONTROLLED here (no explicit `open` prop
-// on ToastPrimitive.Root) and tracks the DOM node's *own*
-// `getComputedStyle(node).animationName` directly — it has no idea a
-// second, later phase exists via an unrelated `transition`, and unmounts
-// the node the instant the first (fade-only) animation's animationend
-// fires. Confirmed directly via a real per-frame trace: the previous
-// two-phase version (a quick fade-out `animation`, then a separately
-// React-state-triggered `transition: grid-template-rows` to collapse the
-// box) had its own collapse phase silently never render at all — Presence
-// tore the node out of the DOM the moment the fade ended, ~180ms before
-// the intended 300ms collapse transition would even have started, so
-// every sibling toast below it snapped up instantly instead of sliding —
-// reported directly as "all the toasts flash" on expiry. A single
-// animation Presence can track start-to-finish avoids the race entirely.
-function injectToastAnimations(targetDocument?: Document, nonce?: string): void {
+// toolcrib's keyframes, keyed on Base UI's attributes.
+// Base UI keeps a closing toast mounted until its
+// running animations finish.
+function injectToastAnimations(targetDocument?: Document, nonce?: string) {
   injectGlobalStyle(
-    TOAST_STYLE_ID,
+    'toolcrib-toast-animations',
     `
     @keyframes toolcrib-toast-slide-in {
-      from { opacity: 0; transform: translateY(0.5rem) scale(0.96); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+      from { opacity: 0; transform: var(--toast-transform-base, ) translateY(calc(var(--stack-offset, 0px) + 0.5rem)) scale(0.96); }
+      to { opacity: 1; transform: var(--toast-transform-base, ) translateY(var(--stack-offset, 0px)) scale(1); }
     }
-    @keyframes toolcrib-toast-fade-out {
-      0% { opacity: 1; transform: translateY(0) scale(1); }
-      37% { opacity: 0; transform: translateY(-0.25rem) scale(0.96); }
-      100% { opacity: 0; transform: translateY(-0.25rem) scale(0.96); }
-    }
+    @keyframes toolcrib-toast-fade-out { from { opacity: 1; } to { opacity: 0; } }
     @keyframes toolcrib-toast-swipe-out {
-      0% { transform: translateX(var(--radix-toast-swipe-end-x, 0)); opacity: 1; }
-      50% { transform: translateX(150%); opacity: 0; }
-      100% { transform: translateX(150%); opacity: 0; }
+      to { transform: var(--toast-transform-base, ) translateY(var(--stack-offset, 0px)) translateX(150%); opacity: 0; }
     }
     .ai-toast-root {
-      /* A plain CSS transition (not baked into the exit @keyframes above)
-         -- Chromium's fr-unit interpolation for grid-template-rows inside
-         a @keyframes rule proved unreliable in practice, confirmed via a
-         real per-frame trace: it snapped between only a few discrete
-         values (full height, then straight to the padding's own
-         intrinsic floor, ~24px) instead of interpolating smoothly, no
-         matter what minmax()/min-height combination guarded against the
-         usual grid-track floor. The same property driven by a plain
-         transition (declared once, unconditionally, so it's always
-         armed) reaches a true, smooth zero reliably. transition-delay
-         below is what sequences it to start only once the fade/swipe
-         portion of the *animation* (which is what Presence actually
-         tracks -- see injectToastAnimations' own comment) has visually
-         finished, rather than collapsing underneath a still-visible toast. */
-      grid-template-rows: 1fr;
-      transition: grid-template-rows var(--ai-toast-collapse-duration, 200ms) ease;
-    }
-    .ai-toast-root[data-state="open"] {
       animation: toolcrib-toast-slide-in var(--ai-transition-duration-normal, 220ms) var(--ai-transition-easing, cubic-bezier(0.4, 0, 0.2, 1));
-      grid-template-rows: 1fr;
+      transform: var(--toast-transform-base, ) translateY(var(--stack-offset, 0px));
+      transition: outline-color var(--ai-transition-duration-normal, 0.2s) var(--ai-transition-easing, ease), transform var(--ai-toast-stack-duration, 260ms) var(--ai-transition-easing, cubic-bezier(0.4, 0, 0.2, 1)) !important;
     }
-    .ai-toast-root[data-state="closed"]:not([data-swipe="end"]) {
-      animation: toolcrib-toast-fade-out var(--ai-toast-exit-duration, 320ms) var(--ai-transition-easing, cubic-bezier(0.4, 0, 0.2, 1)) forwards;
-      grid-template-rows: 0fr;
-      transition-delay: var(--ai-transition-duration-fast, 120ms);
+    .ai-toast-root[data-swiping] {
+      transform: var(--toast-transform-base, ) translateY(var(--stack-offset, 0px)) translateX(var(--toast-swipe-movement-x, 0px));
+      transition: none !important;
     }
-    .ai-toast-root[data-swipe="move"] {
-      transform: translateX(var(--radix-toast-swipe-move-x, 0));
+    .ai-toast-root[data-ending-style]:not([data-swipe-direction]) {
+      animation: toolcrib-toast-fade-out var(--ai-toast-exit-duration, 240ms) ease forwards;
     }
-    .ai-toast-root[data-swipe="cancel"] {
-      transform: translateX(0);
-      transition: transform 0.2s ease-out;
-    }
-    .ai-toast-root[data-swipe="end"] {
+    .ai-toast-root[data-ending-style][data-swipe-direction] {
       animation: toolcrib-toast-swipe-out var(--ai-toast-swipe-exit-duration, 400ms) ease-out forwards;
-      grid-template-rows: 0fr;
-      transition-delay: 0.2s;
     }
     `,
     targetDocument,
@@ -105,309 +73,250 @@ function injectToastAnimations(targetDocument?: Document, nonce?: string): void 
   );
 }
 
-/** @barrelExport */
-export interface ToastProps {
-  toast: ToastItem;
-}
-
-export const ToastItemComponent: React.FC<ToastProps> = ({ toast }) => {
-  const { dismissToast } = useToast();
-  const strings = useLocaleStrings().toast;
+/**
+ * Renders the toast stack. Place once at the app root, inside `<ToastProvider>`
+ * (`<ToolcribProvider>` does both).
+ * @barrelExport
+ */
+export const ToastContainer: React.FC = () => {
+  const manager = BaseToast.useToastManager<ToastManagerData>();
+  const { anchor } = useToast();
   const targetDocument = useTargetDocument();
   const nonce = useNonce();
-  useEffect(() => {
-    injectToastAnimations(targetDocument, nonce);
-  }, [targetDocument, nonce]);
   useInjectInteractionStyles();
+  useEffect(() => injectToastAnimations(targetDocument, nonce), [targetDocument, nonce]);
 
-  // ToastPrimitive.Root is given the same `duration` below and runs its own
-  // internal auto-dismiss timer, which — per Radix's documented Toast
-  // behavior — pauses while the toast is hovered/focused, so it doesn't
-  // disappear mid-read. A second, independently-scheduled setTimeout here
-  // (the previous implementation) had no concept of hover at all: it kept
-  // counting down regardless, so it could fire and dismiss the toast out
-  // from under a user actively reading it — defeating Radix's own
-  // accessibility behavior. Radix is now the only timer.
-  //
-  // The one thing that timer was also doing — distinguishing "timed out"
-  // from "user dismissed" for the `reason` field and the `toast:expired`
-  // event — still needs answering, since Radix's onOpenChange(false) fires
-  // identically for a timeout, a swipe-to-dismiss, an explicit close click,
-  // or a "close all" shortcut, without saying which.
-  //
-  // dismissReasonRef records *why* as soon as it's known (a click, a swipe,
-  // or Radix's own duration timer firing) but deliberately does NOT call
-  // dismissToast yet — see finalize()/onAnimationEnd below for why: doing
-  // so immediately was a real bug (toasts never animated on dismiss/expiry,
-  // reported directly), because dismissToast removes the toast from
-  // ToastContext's `toasts` array, and ToastContainer maps directly over
-  // that array — so an immediate removal unmounts this whole
-  // <ToastPrimitive.Root>. Radix's Presence (used internally by Root) only
-  // defers UNMOUNTING ITS OWN CHILDREN until a real animationend; it can't
-  // defer anything once an ancestor stops rendering it, which is exactly
-  // what happened. The fix keeps this component mounted — and the exit
-  // animation playing — until that real animationend fires.
-  const dismissReasonRef = useRef<'user' | 'expired' | 'action' | null>(null);
-  // Tracks whether the current close is a swipe-to-dismiss, to tell it
-  // apart from a genuine timeout in onOpenChange below (both call it
-  // identically). onSwipeCancel resets this when a drag is released before
-  // the dismiss threshold — the toast stays open and its timer keeps
-  // running, so if it's still false when that timer eventually does fire,
-  // the later dismissal is correctly reported as 'expired', not 'user'.
-  const swipedRef = useRef(false);
-  // Removes the toast from state once its exit animation genuinely
-  // finishes (see injectToastAnimations' own comment for why that
-  // animation now includes a grid-template-rows collapse of this toast's
-  // own box down to zero height, so siblings below it slide up smoothly
-  // rather than snapping the instant it's removed). backstopMs is a bound
-  // in case animationend never fires at all (e.g. a consumer's own global
-  // stylesheet disables animations via `prefers-reduced-motion` +
-  // `!important`) so a toast can never get stuck in the DOM forever — the
-  // same class of bug this toolkit hit before for Tooltip with a missing
-  // @keyframes. finalizedRef guards the backstop against double-firing
-  // after a real animationend already handled it.
-  const finalizedRef = useRef(false);
-  const finalize = (reason: 'user' | 'expired' | 'action') => {
-    if (finalizedRef.current) return;
-    finalizedRef.current = true;
-    dismissToast(toast.id, reason);
-  };
+  // The toolkit's stacking order, from Base UI's measured heights: read top to
+  // bottom, toasts are always oldest first. So at a top anchor the oldest
+  // toast sits at the edge and newer ones stack below it; at a bottom anchor
+  // the newest sits at the edge and older ones are pushed up. Base UI's own --toast-offset-y always stacks
+  // newest-at-the-edge (Sonner style), so offsets are computed here.
+  // A closing toast leaves the flow at once (the rest slide into place) and
+  // keeps the offset it had when it started closing.
+  const newestFirst = manager.toasts; // Base UI prepends new toasts
+  const oldestFirst = [...newestFirst].reverse();
+  const stackOrder = anchor.startsWith('bottom') ? newestFirst : oldestFirst;
+  const open = new Map<string, number>();
+  let cumulative = 0;
+  for (const t of stackOrder) {
+    if (t.transitionStatus === 'ending') continue;
+    open.set(t.id, cumulative);
+    cumulative += (t.height || ESTIMATED_HEIGHT_PX) + STACK_GAP_PX;
+  }
+  // State adjusted during render (React's "storing information from
+  // previous renders"), not a ref read during render: `lastOpen` is the
+  // previous render's open offsets, and a toast that has just started
+  // closing freezes the offset it had there. Both updates are guarded, so
+  // they settle after one extra render.
+  const openKey = [...open].map(([id, y]) => `${id}:${y}`).join('|');
+  const [lastOpen, setLastOpen] = useState<{ key: string; offsets: Map<string, number> }>({ key: '', offsets: new Map() });
+  const [frozen, setFrozen] = useState<Record<string, number>>({});
+  const newlyEnding = newestFirst.filter(t => t.transitionStatus === 'ending' && !(t.id in frozen));
+  // Removed toasts drop out too, so this doesn't grow over a long session.
+  const staleFrozen = Object.keys(frozen).filter(id => !newestFirst.some(t => t.id === id));
+  if (newlyEnding.length > 0 || staleFrozen.length > 0) {
+    setFrozen(prev => {
+      const next = { ...prev, ...Object.fromEntries(newlyEnding.map(t => [t.id, lastOpen.offsets.get(t.id) ?? 0])) };
+      for (const id of staleFrozen) delete next[id];
+      return next;
+    });
+  }
+  if (openKey !== lastOpen.key) setLastOpen({ key: openKey, offsets: open });
+  const offsetFor = (id: string, ending: boolean) => (ending ? frozen[id] ?? lastOpen.offsets.get(id) ?? 0 : open.get(id) ?? 0);
 
-  // Both always non-null: toast.type is always one of the 4 SubthemeName
-  // values, and resolveColorVariant only returns null when neither
-  // `subtheme` nor `variant` is given. Replaces this component's own
-  // previous hand-rolled 4-way switch per color (background/border/accent)
-  // -- the same shared resolver Badge's own subtheme/variant options build
-  // on, so both don't re-derive the same 4-color lookup independently.
-  const softColors = resolveColorVariant({ subtheme: toast.type })!;
-  const outlineColors = resolveColorVariant({ subtheme: toast.type, appearance: 'outline' })!;
+  const vertical = anchor.startsWith('bottom') ? { bottom: 0 } : { top: 0 };
+  const horizontal = anchor.endsWith('left') ? { left: 0 } : anchor.endsWith('right') ? { right: 0 } : { left: '50%', transform: 'translateX(-50%)' };
+  const showing = oldestFirst.filter(t => t.transitionStatus !== 'ending').map(t => (t.data as ToastManagerData).item);
 
   return (
-    <ToastPrimitive.Root
-      data-testid="toast-item"
-      className="ai-toast-root ai-focus-ring"
-      duration={toast.sticky ? Infinity : (toast.duration || 5000)}
-      onSwipeStart={() => { swipedRef.current = true; }}
-      onSwipeCancel={() => { swipedRef.current = false; }}
-      onOpenChange={(open) => {
-        if (open) return;
-        if (!dismissReasonRef.current) {
-          // No explicit click already recorded a reason — this is either a
-          // swipe-to-dismiss or Radix's own duration timer firing.
-          if (swipedRef.current) {
-            dismissReasonRef.current = 'user';
-          } else {
-            aiBus.emit('toast:expired', { id: toast.id, message: toast.message, type: toast.type });
-            dismissReasonRef.current = 'expired';
-          }
-        }
-        // Backstop only -- see finalize's own comment. The real removal
-        // path is onAnimationEnd below, which fires much sooner (as soon
-        // as the exit animation itself finishes) than this fallback.
-        window.setTimeout(() => finalize(dismissReasonRef.current!), 1000);
-      }}
-      onAnimationEnd={(e) => {
-        if (
-          dismissReasonRef.current &&
-          (e.animationName === 'toolcrib-toast-fade-out' || e.animationName === 'toolcrib-toast-swipe-out')
-        ) {
-          finalize(dismissReasonRef.current);
-        }
-      }}
-      style={{
-        // grid, not flex, and a single-row track -- the injected stylesheet
-        // (see injectToastAnimations) drives grid-template-rows itself,
-        // between 1fr (open) and 0fr (closed, via a plain CSS transition),
-        // collapsing this toast's box from real content height to zero
-        // without measuring pixels in JS. Deliberately NOT set here as an
-        // inline value -- an inline style would always win over the
-        // stylesheet's [data-state] rules regardless of specificity, which
-        // is exactly what that separate mechanism needs to control.
-        display: 'grid',
-        minHeight: 0,
-        borderRadius: 'var(--ai-radius-lg, 0.5rem)',
-        background: `linear-gradient(135deg, ${softColors.background} 0%, var(--ai-bg-surface, #ffffff) 100%)`,
-        color: 'var(--ai-text-primary, #111827)',
-        border: `0.0625rem solid ${softColors.border}`,
-        borderLeft: `var(--ai-toast-accent-width, 0.3125rem) solid ${outlineColors.color}`,
-        boxShadow: 'var(--ai-toast-shadow, 0 0.625rem 0.9375rem -0.1875rem rgba(0,0,0,0.12), 0 0.25rem 0.375rem -0.125rem rgba(0,0,0,0.06))',
-        minWidth: '17.5rem',
-        maxWidth: '26.25rem',
-        position: 'relative',
-        outline: 'none',
-        // Confirmed via a real browser run (DOM dump + computed-style walk):
-        // Radix's ToastPrimitive.Root portals its actual rendered content to
-        // be a direct child of the Viewport's <ol>, not a descendant of
-        // whatever wrapper the consumer places around <ToastPrimitive.Root>
-        // in JSX. ToastContainer below used to rely on a per-toast wrapper
-        // <div style={{ pointerEvents: 'auto' }}> to counteract the
-        // Viewport's own pointerEvents: 'none' (needed so the empty space
-        // around toasts stays click-through) — but since the portal moves
-        // this Root's real output out from under that div entirely, the div
-        // was overriding pointer-events on an empty shell while the actual
-        // toast (this element and everything inside it, including the
-        // dismiss button) kept inheriting 'none' straight from the Viewport.
-        // Every click on a toast's close/action button was silently
-        // swallowed and fell through to whatever was underneath on the page
-        // — reproduced exactly as reported: dismiss appeared to do nothing,
-        // and the click landed on the header button one toast happened to
-        // overlap instead. Setting it here, on the element that's actually
-        // still a real ancestor of the dismiss/action buttons after the
-        // portal, is what actually fixes it.
-        pointerEvents: 'auto',
-      }}
-    >
-      {/* The direct grid item Root's animated grid-template-rows actually
-          shrinks — overflow:hidden + minHeight:0, with NO padding/gap of
-          its own. Same rule Accordion.tsx's own comment documents: CSS
-          floors a box's *rendered* height at its own padding+border sum
-          regardless of min-height/box-sizing, so the element whose height
-          is actually being animated can never have padding directly on it
-          — confirmed the hard way here too, not just reasoned about: this
-          div used to carry the padding itself, and the collapse
-          consistently stalled at exactly that padding's own pixel sum
-          (~24px) instead of reaching true zero, no matter how many nested
-          flex rows below also got minHeight:0 (each was a real, necessary
-          fix in its own right — flex items default to min-height:auto
-          regardless of display type, and none of that mattered until the
-          padding itself, on the animated element, was also moved out). */}
-      <div style={{ overflow: 'hidden', minHeight: 0 }}>
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.375rem',
-            padding: 'var(--ai-padding-lg, 0.75rem 1rem)',
-          }}
+    <BaseToast.Portal container={targetDocument?.body}>
+      {/* Mounted before the first toast: a live region only announces
+          changes that happen after it exists. */}
+      <ToastAnnouncer toasts={showing} />
+      {newestFirst.length > 0 && (
+        <BaseToast.Viewport
+          // Announcements come from ToastAnnouncer, not the viewport.
+          aria-live="off"
+          className="ai-focus-ring"
+          style={{ position: 'fixed', zIndex: Z_INDEX.TOAST, height: '100vh', width: '100%', padding: VIEWPORT_PADDING, boxSizing: 'border-box', pointerEvents: 'none', outline: 'none', ...vertical, ...horizontal }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', minHeight: 0 }}>
-            {/* minHeight:0 -- also a flex item of the row above (its own
-                display:'block' doesn't exempt it: a flex item's
-                min-height:auto resolves to its own min-content size
-                regardless of its display type), same fix as its siblings
-                for the same reason. */}
-            <div style={{ minHeight: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', minHeight: 0 }}>
-                {toast.title && (
-                  <ToastPrimitive.Title style={{ fontWeight: 'var(--ai-font-weight-semibold, 600)', fontSize: '0.9rem' }}>
-                    {toast.title}
-                  </ToastPrimitive.Title>
-                )}
-                {toast.sticky && (
-                  <span style={{ fontSize: '0.6875rem', padding: 'var(--ai-padding-xs, 0.0625rem 0.375rem)', borderRadius: 'var(--ai-radius-sm, 0.25rem)', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--ai-subtheme-error, #ef4444)', fontWeight: 'var(--ai-font-weight-bold, 700)' }}>
-                    📌 Sticky
-                  </span>
-                )}
-              </div>
-              <ToastPrimitive.Description style={{ fontSize: '0.875rem' }}>
-                {toast.message}
-              </ToastPrimitive.Description>
-            </div>
-
-            <ToastPrimitive.Close
-              aria-label={strings.dismissToast}
-              onClick={() => { dismissReasonRef.current = 'user'; }}
-              className="ai-btn"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--ai-text-secondary, #6b7280)',
-                cursor: 'pointer',
-                fontSize: '1rem',
-                padding: 'var(--ai-padding-xs, 0.125rem 0.375rem)',
-                minHeight: 0,
-                ['--ai-btn-bg' as string]: 'transparent',
-              }}
-            >
-              ×
-            </ToastPrimitive.Close>
-          </div>
-
-          {toast.actions && toast.actions.length > 0 && (
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', minHeight: 0 }}>
-              {toast.actions.map((act, i) => (
-                <ToastPrimitive.Action
-                  key={i}
-                  altText={act.label}
-                  onClick={() => {
-                    aiBus.emit('toast:action_clicked', {
-                      id: toast.id,
-                      actionLabel: act.label,
-                      message: toast.message,
-                    });
-                    act.onClick();
-                    dismissReasonRef.current = 'action';
-                  }}
-                  className="ai-btn"
-                  style={{
-                    padding: 'var(--ai-padding-xs, 0.25rem 0.625rem)',
-                    borderRadius: 'var(--ai-radius-sm, 0.25rem)',
-                    border: `0.0625rem solid ${outlineColors.color}`,
-                    background: 'transparent',
-                    color: outlineColors.color,
-                    fontSize: '0.75rem',
-                    fontWeight: 'var(--ai-font-weight-semibold, 600)',
-                    cursor: 'pointer',
-                    ['--ai-btn-bg' as string]: 'transparent',
-                  }}
-                >
-                  {act.label}
-                </ToastPrimitive.Action>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </ToastPrimitive.Root>
+          {oldestFirst.map(t => (
+            <ToastView key={t.id} toast={t} anchor={anchor} stackOffset={offsetFor(t.id, t.transitionStatus === 'ending')} />
+          ))}
+        </BaseToast.Viewport>
+      )}
+    </BaseToast.Portal>
   );
 };
 
-export const ToastContainer: React.FC = () => {
-  const { toasts, anchor } = useToast();
+/** Whether a toast is announced assertively (role="alert") rather than politely. */
+const isUrgent = (t: ToastItem) => t.priority === 'high' || t.priority === 'urgent';
 
-  if (toasts.length === 0) return null;
+/**
+ * Screen-reader announcements for toasts, in two live regions this toolkit
+ * owns: `high`/`urgent` toasts in role="alert" (assertive), the rest in
+ * role="status" (polite).
+ *
+ * Fallback for mui/base-ui#5659. Base UI announces a high-priority toast from
+ * a hidden role="alert" copy and sets aria-hidden on the visible toast, which
+ * stays focusable. Here every toast goes to Base UI as low priority (visible,
+ * focusable, never aria-hidden) and the viewport's own polite region is off,
+ * so each toast is announced exactly once, at the right politeness.
+ * mui/base-ui#5731 proposes the same shape upstream; if it lands, this can go.
+ *
+ * Each announcement is keyed by its text, so a promise toast whose message
+ * changes (loading, then done) is announced again. The text is inserted a moment after the toast appears (the
+ * insertion is what a live region reports) and removed once it has had time
+ * to be read (removals aren't announced), so the page doesn't carry a second
+ * copy of every toast's text.
+ */
+const ANNOUNCE_DELAY_MS = 50;
+const ANNOUNCE_HOLD_MS = 1000;
+interface Announcement {
+  key: string;
+  text: string;
+  urgent: boolean;
+}
 
-  const getPositionStyles = (): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      position: 'fixed',
-      zIndex: Z_INDEX.TOAST,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.625rem',
-      padding: 'var(--ai-padding-xl, 1rem)',
-      pointerEvents: 'none',
-      margin: 0,
-      listStyle: 'none',
-      outline: 'none',
+const ToastAnnouncer: React.FC<{ toasts: ToastItem[] }> = ({ toasts }) => {
+  const [live, setLive] = useState<Announcement[]>([]);
+  const seen = useRef(new Set<string>());
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const current = toasts.map(t => ({ key: `${t.id}:${t.title ?? ''}:${t.message}`, text: t.title ? `${t.title}. ${t.message}` : t.message, urgent: isUrgent(t) }));
+    // Forget keys for toasts no longer showing (or whose text changed), so
+    // `seen` stays bounded over a long session.
+    const currentKeys = new Set(current.map(a => a.key));
+    for (const key of seen.current) if (!currentKeys.has(key)) seen.current.delete(key);
+    const fresh = current.filter(a => !seen.current.has(a.key));
+    if (fresh.length === 0) return;
+    for (const a of fresh) seen.current.add(a.key);
+    const later = (ms: number, fn: () => void) => {
+      const timer = setTimeout(() => {
+        timers.current.delete(timer);
+        fn();
+      }, ms);
+      timers.current.add(timer);
     };
+    later(ANNOUNCE_DELAY_MS, () => setLive(prev => [...prev, ...fresh]));
+    later(ANNOUNCE_DELAY_MS + ANNOUNCE_HOLD_MS, () => setLive(prev => prev.filter(a => !fresh.includes(a))));
+  }, [toasts]);
 
-    switch (anchor) {
-      case 'top-right':
-        return { ...base, top: 0, right: 0, alignItems: 'flex-end' };
-      case 'top-left':
-        return { ...base, top: 0, left: 0, alignItems: 'flex-start' };
-      case 'bottom-right':
-        return { ...base, bottom: 0, right: 0, alignItems: 'flex-end' };
-      case 'bottom-left':
-        return { ...base, bottom: 0, left: 0, alignItems: 'flex-start' };
-      case 'top-center':
-        return { ...base, top: 0, left: '50%', transform: 'translateX(-50%)', alignItems: 'center' };
-      case 'bottom-center':
-        return { ...base, bottom: 0, left: '50%', transform: 'translateX(-50%)', alignItems: 'center' };
-    }
-  };
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach(clearTimeout);
+  }, []);
 
+  const entries = (urgent: boolean) =>
+    live.filter(a => a.urgent === urgent).map(a => <span key={a.key}>{a.text} </span>);
   return (
-    <ToastPrimitive.Provider swipeDirection="right">
-      <ToastPrimitive.Viewport className="ai-focus-ring" style={getPositionStyles()}>
-        {/* No per-toast wrapper div here — see ToastItemComponent's own
-            pointerEvents: 'auto' comment for why one existed before and why
-            it never actually worked (ToastPrimitive.Root portals its real
-            output out from under it, straight to this Viewport). */}
-        {toasts.map(toast => (
-          <ToastItemComponent key={toast.id} toast={toast} />
-        ))}
-      </ToastPrimitive.Viewport>
-    </ToastPrimitive.Provider>
+    <>
+      <div role="status" aria-live="polite" aria-atomic="false" data-testid="toast-announcer-polite">
+        <VisuallyHidden>{entries(false)}</VisuallyHidden>
+      </div>
+      <div role="alert" aria-atomic="false" data-testid="toast-announcer-assertive">
+        <VisuallyHidden>{entries(true)}</VisuallyHidden>
+      </div>
+    </>
+  );
+};
+
+type BaseToastObject = ReturnType<typeof BaseToast.useToastManager<ToastManagerData>>['toasts'][number];
+
+const ToastView: React.FC<{ toast: BaseToastObject; anchor: ToastAnchor; stackOffset: number }> = ({ toast: t, anchor, stackOffset }) => {
+  const item = (t.data as ToastManagerData).item;
+  const actions = useToastActions();
+  const strings = useLocaleStrings().toast;
+  const soft = resolveColorVariant({ subtheme: item.type })!;
+  const outline = resolveColorVariant({ subtheme: item.type, appearance: 'outline' })!;
+  return (
+    <BaseToast.Root
+      toast={t}
+      swipeDirection="right"
+      data-testid="toast-item"
+      // Base UI makes each toast a non-modal role=dialog. A toast isn't one:
+      // screen readers would list every toast among the page's dialogs, and
+      // anything finding "the open dialog" by role (a consumer's
+      // getByRole('dialog') for their Modal, our own e2e overlay checks)
+      // would also match whatever toasts are on screen. A named group is the
+      // neutral container for a focusable cluster of controls.
+      role="group"
+      // Base UI's aria-modal="false" belongs to its dialog role; on a group
+      // it's an unsupported attribute (axe aria-allowed-attr).
+      aria-modal={undefined}
+      // A group needs a name; most toolcrib toasts have no title, so the
+      // message names it.
+      aria-label={item.title ? undefined : item.message}
+      data-loading={item.loading ? '' : undefined}
+      aria-busy={item.loading || undefined}
+      className="ai-toast-root ai-focus-ring"
+      style={{
+        position: 'absolute',
+        top: anchor.startsWith('bottom') ? 'auto' : ITEM_INSET,
+        bottom: anchor.startsWith('bottom') ? ITEM_INSET : 'auto',
+        ...(anchor.endsWith('center') ? { left: '50%', right: 'auto' } : anchor.endsWith('left') ? { left: ITEM_INSET, right: 'auto' } : { left: 'auto', right: ITEM_INSET }),
+        ['--stack-offset' as string]: `${anchor.startsWith('bottom') ? -stackOffset : stackOffset}px`,
+        ...(anchor.endsWith('center') ? { ['--toast-transform-base' as string]: 'translateX(-50%)' } : {}),
+        borderRadius: 'var(--ai-radius-lg, 0.5rem)',
+        background: `linear-gradient(135deg, ${soft.background} 0%, var(--ai-bg-surface, #ffffff) 100%)`,
+        color: 'var(--ai-text-primary, #111827)',
+        border: `0.0625rem solid ${soft.border}`,
+        borderLeft: `var(--ai-toast-accent-width, 0.3125rem) solid ${outline.color}`,
+        boxShadow: 'var(--ai-toast-shadow, 0 0.625rem 0.9375rem -0.1875rem rgba(0,0,0,0.12), 0 0.25rem 0.375rem -0.125rem rgba(0,0,0,0.06))',
+        minWidth: '17.5rem',
+        maxWidth: '26.25rem',
+        outline: 'none',
+        pointerEvents: 'auto',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', padding: 'var(--ai-padding-lg, 0.75rem 1rem)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              {item.title && <BaseToast.Title style={{ fontWeight: 'var(--ai-font-weight-semibold, 600)', fontSize: '0.9rem' }}>{item.title}</BaseToast.Title>}
+              {item.sticky && !item.loading && (
+                <span style={{ fontSize: '0.6875rem', padding: 'var(--ai-padding-xs, 0.0625rem 0.375rem)', borderRadius: 'var(--ai-radius-sm, 0.25rem)', background: 'var(--ai-subtheme-error-bg)', color: 'var(--ai-subtheme-error-text)', fontWeight: 'var(--ai-font-weight-bold, 700)' }}>📌 Sticky</span>
+              )}
+            </div>
+            <BaseToast.Description render={<div />} style={{ fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {item.loading && (
+                <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+                  <Spinner size="sm" subtheme={item.type} />
+                </span>
+              )}
+              {item.message}
+            </BaseToast.Description>
+          </div>
+          <BaseToast.Close
+            aria-label={strings.dismissToast}
+            onClick={() => actions.dismissToast(item.id, 'user')}
+            className="ai-btn"
+            style={{ background: 'transparent', border: 'none', color: 'var(--ai-text-secondary, #6b7280)', cursor: 'pointer', fontSize: '1rem', padding: 'var(--ai-padding-xs, 0.125rem 0.375rem)', ['--ai-btn-bg' as string]: 'transparent' }}
+          >
+            ×
+          </BaseToast.Close>
+        </div>
+        {item.actions && item.actions.length > 0 && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+            {item.actions.map((act, i) => (
+              <button
+                key={i}
+                type="button"
+                className="ai-btn"
+                onClick={() => {
+                  aiBus.emit('toast:action_clicked', { id: item.id, actionLabel: act.label, message: item.message });
+                  act.onClick();
+                  actions.dismissToast(item.id, 'action');
+                }}
+                style={{ padding: 'var(--ai-padding-xs, 0.25rem 0.625rem)', borderRadius: 'var(--ai-radius-sm, 0.25rem)', border: `0.0625rem solid ${outline.color}`, background: 'transparent', color: outline.color, fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-semibold, 600)', cursor: 'pointer', ['--ai-btn-bg' as string]: 'transparent' }}
+              >
+                {act.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </BaseToast.Root>
   );
 };

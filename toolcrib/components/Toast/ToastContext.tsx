@@ -1,11 +1,21 @@
 'use client';
 
-import React, { createContext, useContext, useState, type ReactNode, useCallback, useRef, useLayoutEffect } from 'react';
+// Toast state on Base UI's toast manager (#670, #698). The public surface is
+// unchanged: ToastProvider serves useToast()/useToastActions(), listens to
+// toast:shown/toast:updated, and emits toast:added/expired/dismissed. Base
+// UI's manager replaces the hand-rolled list and timers; <ToastContainer>
+// (Toast.tsx) renders from the same manager.
+import React, { createContext, useContext, useState, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Toast as BaseToast } from '@base-ui/react/toast';
 import { useAIEvent } from '../../eventBus/useAIEvent';
 import { aiBus } from '../../eventBus/eventBus';
 import { type SubthemeName } from '../../theme/subtheme';
 
-/** Toast urgency level. Higher priority toasts are displayed first. */
+/**
+ * Toast urgency level -- controls duration/stickiness (`'urgent'` is
+ * always sticky), not stacking position. Toasts always stack in FIFO
+ * (insertion) order regardless of priority.
+ */
 /** @barrelExport */
 export type ToastPriority = 'low' | 'medium' | 'high' | 'urgent';
 /** Visual style variant for toasts — the same vocabulary as `SubthemeName`. */
@@ -45,12 +55,18 @@ export interface ToastItem {
   duration?: number;
   /** If true, toast requires explicit user dismissal and never auto-expires. */
   sticky?: boolean;
-  /** Display priority. Higher-priority toasts sort to top. @default 'medium' */
+  /** Display priority -- affects duration/stickiness only, not stacking order (always FIFO). @default 'medium' */
   priority?: ToastPriority;
   /** Screen corner override for this specific toast. Defaults to provider anchor. */
   anchor?: ToastAnchor;
   /** Action buttons rendered in the toast. */
   actions?: ToastAction[];
+  /**
+   * Shows a spinner and holds the toast open (no auto-dismiss) until it's
+   * updated with `loading: false`. Set by `aiBus.showToastPromise`; an
+   * `updateToast` that clears it starts the normal duration.
+   */
+  loading?: boolean;
 }
 
 /**
@@ -64,6 +80,13 @@ export interface ToastContextType {
   toasts: ToastItem[];
   /** Add a toast and return its id. */
   addToast: (toast: Omit<ToastItem, 'id'> & { id?: string }) => string;
+  /**
+   * Change a visible toast in place (same id, same stack position), e.g. a
+   * loading toast becoming success/error. Doesn't replay the enter
+   * animation. `duration`/`sticky`/`priority` changes restart the timer.
+   * No-op if the toast is gone.
+   */
+  updateToast: (id: string, patch: Partial<Omit<ToastItem, 'id'>>) => void;
   /** Dismiss a specific toast by id. */
   dismissToast: (id: string, reason?: 'user' | 'expired' | 'action') => void;
   /** Dismiss all visible toasts. */
@@ -76,115 +99,136 @@ export interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
-const PRIORITY_WEIGHT: Record<ToastPriority, number> = {
-  urgent: 4,
-  high: 3,
-  medium: 2,
-  low: 1,
-};
+/**
+ * The stable half of `ToastContextType`: just the actions, no toast list.
+ * Returned by `useToastActions()`.
+ */
+export type ToastActions = Pick<ToastContextType, 'addToast' | 'updateToast' | 'dismissToast' | 'clearAll' | 'setAnchor'>;
+
+// Issue #632: a separate context for the actions alone, memoized so its
+// value only changes when an action itself does (addToast when the anchor
+// changes; the rest never). ToastContext's value carries the live toasts
+// array, so every useToast() consumer re-rendered whenever ANY toast was
+// added or expired -- including components that only ever called addToast.
+const ToastActionsContext = createContext<ToastActions | undefined>(undefined);
 
 export interface ToastProviderProps {
   children: ReactNode;
   defaultAnchor?: ToastAnchor;
 }
 
-export const ToastProvider: React.FC<ToastProviderProps> = ({
-  children,
-  defaultAnchor = 'top-right',
-}) => {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+/** What each Base UI toast carries: the toolkit's own item, read back by `<ToastContainer>`. */
+export interface ToastManagerData {
+  item: ToastItem;
+}
+
+type DismissReason = 'user' | 'expired' | 'action';
+
+const timeoutFor = (t: ToastItem) => (t.sticky || t.loading ? 0 : t.duration || 5000);
+const deriveSticky = (t: ToastItem): ToastItem => {
+  const sticky = Boolean(t.sticky || t.duration === 0 || t.priority === 'urgent');
+  return { ...t, sticky, duration: sticky ? 0 : t.duration ?? 5000 };
+};
+// Always low: Base UI's high priority aria-hides a focusable toast
+// (mui/base-ui#5659). Urgency is announced by Toast.tsx's ToastAnnouncer
+// instead, at the right politeness.
+const BASE_PRIORITY = 'low' as const;
+
+export const ToastProvider: React.FC<ToastProviderProps> = ({ children, defaultAnchor = 'top-right' }) => (
+  // The toolkit stacks every toast (FIFO, no cap); Base UI defaults to 3.
+  <BaseToast.Provider limit={1000}>
+    <ToastBridge defaultAnchor={defaultAnchor}>{children}</ToastBridge>
+  </BaseToast.Provider>
+);
+
+const ToastBridge: React.FC<{ children: ReactNode; defaultAnchor: ToastAnchor }> = ({ children, defaultAnchor }) => {
+  const manager = BaseToast.useToastManager<ToastManagerData>();
   const [anchor, setAnchor] = useState<ToastAnchor>(defaultAnchor);
-  // dismissToast needs the dismissed toast's data (message/type) for the
-  // `toast:dismissed` payload, but reads it via a `let` captured by the
-  // setToasts updater and used immediately after the setToasts call —
-  // relying on the updater having already run synchronously, which React 18
-  // batching does not guarantee (two toasts auto-expiring in the same batch
-  // is enough to break it, since only the first gets the eager-update
-  // shortcut). Mirroring toasts into a ref keeps dismissToast referentially
-  // stable (still `[]` deps, matching every other callback here) while
-  // giving it a synchronously-current snapshot to read from instead.
-  const toastsRef = useRef<ToastItem[]>(toasts);
-  // useLayoutEffect, not a bare assignment during render -- writing to a
-  // ref during render is unsafe under React's stricter rules (a discarded/
-  // aborted render attempt could write a value that never actually
-  // commits). useLayoutEffect runs synchronously right after commit,
-  // before the browser paints or any event handler can run, so
-  // dismissToast (called from an event handler or a later timer) still
-  // sees a synchronously-current snapshot, same as this comment's
-  // original "kept in sync" guarantee.
-  useLayoutEffect(() => {
-    toastsRef.current = toasts;
-  }, [toasts]);
+  // Why a toast closed. Base UI's onClose doesn't say; a close button or an
+  // action records its reason first, and an unrecorded close is a timeout.
+  const reasons = useRef(new Map<string, DismissReason>());
 
-  const addToast = useCallback((toastData: Omit<ToastItem, 'id'> & { id?: string }): string => {
-    const id = toastData.id || `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const isSticky = Boolean(toastData.sticky || toastData.duration === 0 || toastData.priority === 'urgent');
-    const duration = isSticky ? 0 : (toastData.duration !== undefined ? toastData.duration : 5000);
+  const addToast = useCallback(
+    (toastData: Omit<ToastItem, 'id'> & { id?: string }): string => {
+      const id = toastData.id || `toast-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const item = deriveSticky({ id, priority: 'medium', anchor, ...toastData } as ToastItem);
+      reasons.current.delete(id);
+      manager.add({
+        id,
+        title: item.title,
+        description: item.message,
+        type: item.type,
+        timeout: timeoutFor(item),
+        priority: BASE_PRIORITY,
+        data: { item },
+        onClose: () => {
+          if (!reasons.current.has(id)) {
+            reasons.current.set(id, 'expired');
+            aiBus.emit('toast:expired', { id, message: item.message, type: item.type });
+          }
+        },
+        onRemove: () => {
+          aiBus.emit('toast:dismissed', { id, message: item.message, type: item.type, reason: reasons.current.get(id) ?? 'expired' });
+          reasons.current.delete(id);
+        },
+      });
+      aiBus.emit('toast:added', { id, type: item.type, message: item.message, priority: item.priority, loading: item.loading });
+      return id;
+    },
+    [anchor, manager]
+  );
 
-    const newToast: ToastItem = {
-      id,
-      priority: 'medium',
-      anchor,
-      ...toastData,
-      sticky: isSticky,
-      duration,
-    };
+  const updateToast = useCallback(
+    (id: string, patch: Partial<Omit<ToastItem, 'id'>>) => {
+      manager.update(id, prev => {
+        const next = deriveSticky({ ...(prev.data as ToastManagerData).item, ...patch });
+        return { title: next.title, description: next.message, type: next.type, timeout: timeoutFor(next), priority: BASE_PRIORITY, data: { item: next } };
+      });
+    },
+    [manager]
+  );
 
-    setToasts(prev => {
-      const updated = [...prev.filter(t => t.id !== id), newToast];
-      // Sort by priority (higher priority first)
-      return updated.sort((a, b) => PRIORITY_WEIGHT[b.priority || 'medium'] - PRIORITY_WEIGHT[a.priority || 'medium']);
-    });
+  const dismissToast = useCallback(
+    (id: string, reason: DismissReason = 'user') => {
+      if (!reasons.current.has(id)) reasons.current.set(id, reason);
+      manager.close(id);
+    },
+    [manager]
+  );
 
-    aiBus.emit('toast:added', {
-      id,
-      type: newToast.type,
-      message: newToast.message,
-      priority: newToast.priority,
-    });
+  const clearAll = useCallback(() => manager.close(), [manager]);
 
-    return id;
-  }, [anchor]);
-
-  const dismissToast = useCallback((id: string, reason: 'user' | 'expired' | 'action' = 'user') => {
-    const targetToast = toastsRef.current.find(t => t.id === id);
-    setToasts(prev => prev.filter(t => t.id !== id));
-
-    aiBus.emit('toast:dismissed', {
-      id,
-      message: targetToast?.message,
-      type: targetToast?.type,
-      reason,
-    });
-  }, []);
-
-  const clearAll = useCallback(() => {
-    setToasts([]);
-  }, []);
-
-  // Listen to Event Bus for toast dispatching
-  useAIEvent('toast:shown', event => {
-    addToast({
-      id: event.id,
-      type: event.type,
-      message: event.message,
-      priority: event.priority || 'medium',
-    });
+  useAIEvent('toast:shown', e => {
+    addToast({ id: e.id, type: e.type, message: e.message, priority: e.priority || 'medium', loading: e.loading });
+  });
+  useAIEvent('toast:updated', e => {
+    updateToast(e.id, { type: e.type, message: e.message, loading: e.loading });
   });
 
+  const toasts = manager.toasts.map(t => (t.data as ToastManagerData).item);
+  // Base UI's manager methods aren't referentially stable, so the actions
+  // object is built once over a ref to the latest callbacks: a
+  // useToastActions() consumer must not re-render when a toast is added (#632).
+  const latest = useRef({ addToast, updateToast, dismissToast, clearAll });
+  useEffect(() => {
+    latest.current = { addToast, updateToast, dismissToast, clearAll };
+  });
+  const actions = useMemo<ToastActions>(
+    () => ({
+      addToast: t => latest.current.addToast(t),
+      updateToast: (id, p) => latest.current.updateToast(id, p),
+      dismissToast: (id, r) => latest.current.dismissToast(id, r),
+      clearAll: () => latest.current.clearAll(),
+      setAnchor,
+    }),
+    []
+  );
+  const value: ToastContextType = { toasts, addToast, updateToast, dismissToast, clearAll, setAnchor, anchor };
+
   return (
-    <ToastContext.Provider
-      value={{
-        toasts,
-        addToast,
-        dismissToast,
-        clearAll,
-        setAnchor,
-        anchor,
-      }}
-    >
-      {children}
-    </ToastContext.Provider>
+    <ToastActionsContext.Provider value={actions}>
+      <ToastContext.Provider value={value}>{children}</ToastContext.Provider>
+    </ToastActionsContext.Provider>
   );
 };
 
@@ -192,6 +236,21 @@ export const useToast = (): ToastContextType => {
   const context = useContext(ToastContext);
   if (!context) {
     throw new Error('useToast must be used within a ToastProvider');
+  }
+  return context;
+};
+
+/**
+ * Just the toast actions (`addToast`, `dismissToast`, `clearAll`,
+ * `setAnchor`), without the live toast list. Prefer this over `useToast()`
+ * in any component that only fires toasts: a `useToast()` consumer
+ * re-renders every time any toast is added, updated or expires, while
+ * this value stays referentially stable (issue #632).
+ */
+export const useToastActions = (): ToastActions => {
+  const context = useContext(ToastActionsContext);
+  if (!context) {
+    throw new Error('useToastActions must be used within a ToastProvider');
   }
   return context;
 };

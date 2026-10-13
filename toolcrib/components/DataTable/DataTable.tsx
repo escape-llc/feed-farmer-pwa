@@ -1,8 +1,27 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, type ReactNode } from 'react';
-import { Checkbox as CheckboxPrimitive } from 'radix-ui';
+import {
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  type ReactNode,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import type { ZodType } from 'zod';
+import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
+import { Menu } from '@base-ui/react/menu';
+import { DROPDOWN_COLLISION, OverlayCSP } from '../Overlay/baseui/overlayLayer';
+import { menuItemStyle, menuPopupStyle } from '../DropdownMenu/menuParts';
+import { Rows2, Rows3, Rows4, Download, Columns3, ChevronRight, ChevronDown } from 'lucide-react';
 import { UIGroup } from '../UIGroup/UIGroup';
+import { ToggleGroup } from '../ToggleGroup/ToggleGroup';
+import { Button } from '../Form/FormComponents';
+import { Badge } from '../Badge/Badge';
+import { VisuallyHidden } from '../Layout/VisuallyHidden';
 import { Toolbar } from '../Toolbar/Toolbar';
 import { Z_INDEX } from '../../theme/zIndex';
 import { useAdaptiveSize } from '../../observer/useAdaptiveSize';
@@ -12,8 +31,22 @@ import { resolveSubtheme, type SubthemeName, type SubthemeColors } from '../../t
 import { useStableId } from '../shared/useStableId';
 import { usePagination } from '../shared/usePagination';
 import { aiBus } from '../../eventBus/eventBus';
-import { DataTableThemeSlice, type TableSliceState } from './DataTableSlice';
+import { DataTableThemeSlice, type TableSliceState, type TableDensity, DENSITY_ROW_HEIGHT_PX, DENSITY_ROW_COMMAND_BUTTON_PX, DENSITY_HEADER_HEIGHT_PX, DENSITY_SELECTION_CELL_PADDING_V_PX, DENSITY_SELECTION_HEADER_PADDING_V_PX } from './DataTableSlice';
+import { columnsToCsv, downloadCsvFile } from './csvExport';
 import { useLocaleStrings } from '../Locale/LocaleContext';
+import { useTableSort } from './useTableSort';
+import { useTableQuickFilter } from './useTableQuickFilter';
+import { useTableDensity } from './useTableDensity';
+import { useRowSetCrossFade } from './useRowSetCrossFade';
+import { useTableSelection } from './useTableSelection';
+import { useTableEditing } from './useTableEditing';
+import { EditCoGrid } from './EditCoGrid';
+import { useTableVirtualization, AUTO_HEIGHT_FALLBACK_PX } from './useTableVirtualization';
+import { useTableKeyboardNav } from './useTableKeyboardNav';
+import { useTableColumnResize, getColumnMinWidth } from './useTableColumnResize';
+import { useTableColumnVisibility } from './useTableColumnVisibility';
+import { useTableColumnPinning } from './useTableColumnPinning';
+import { useTargetDocument } from '../../theme/targetDocumentContext';
 
 /** Argument passed to a `Column.render` callback for one cell. */
 export interface CellContext<T = any> {
@@ -24,9 +57,27 @@ export interface CellContext<T = any> {
   /**
    * This row's index — matches `rowKey`/`rowSubtheme`/`onRowClick`'s
    * `index` exactly (see `rowSubtheme`'s doc for its page-relative vs.
-   * absolute distinction, which applies here too).
+   * absolute distinction, which applies here too) for a MAIN-GRID cell.
+   * For a cell rendered inside the edit co-grid (issue #545), this is
+   * instead the record's position in the raw, unsorted/unfiltered/
+   * unpaginated `data` array — there's no "page" for a co-grid row to be
+   * relative to, since it's deliberately decoupled from sort/filter/
+   * pagination. Harmless either way for a compliant `rowKey` (`editable`
+   * requires one that depends only on the record, never on `index`).
    */
   index: number;
+  /**
+   * Present only when `<DataTable editable>` is true — absent (`undefined`)
+   * otherwise, so a non-editable table's `render` sees no shape change.
+   * `true` for every cell rendered inside the edit co-grid; on a MAIN-GRID
+   * cell, reflects whether this specific row is currently in the editing
+   * key-set.
+   */
+  isEditing?: boolean;
+  /** Adds this row to the editing key-set. Only present on a main-grid cell (a co-grid row is already editing — see `cancelEditingRow` there instead). */
+  startEditingRow?: () => void;
+  /** Removes this row from the editing key-set without saving. Present on both a main-grid cell (for a custom `render` wanting its own cancel affordance) and a co-grid cell (`editEditor`'s own explicit Cancel, beyond the co-grid's built-in one). */
+  cancelEditingRow?: () => void;
 }
 
 /** Column definition for `<DataTable>`. */
@@ -57,6 +108,99 @@ export interface Column<T = any> {
   sortable?: boolean;
   /** Column width as CSS value (e.g. `'12rem'`) or number (px). */
   width?: string | number;
+  /**
+   * If true, shows a drag handle on this column's trailing edge, resizable
+   * by mouse/touch or (with the handle focused) Left/Right arrow keys
+   * (Shift for a bigger step), Home (minimum), and End. Works regardless
+   * of whether `width` above is set, a CSS string, or omitted entirely --
+   * a drag measures this column's own real rendered width as its starting
+   * point rather than requiring a pre-declared pixel value. @default false
+   */
+  resizable?: boolean;
+  /**
+   * Minimum width (px) a drag or arrow-key resize can shrink this column
+   * to -- prevents a variant of the real `table-layout: fixed`
+   * column-collapse defect documented in this project's own competitive
+   * research. Only meaningful alongside `resizable`.
+   * @default 40
+   */
+  minWidth?: number;
+  /**
+   * Freezes this column at the left or right edge of the scrollable grid
+   * body, staying visible (via CSS `position: sticky`) while the user
+   * scrolls the rest of the columns horizontally underneath it -- the same
+   * mechanism `<DataTable>`'s own sticky header already uses, extended to
+   * the horizontal axis (issue #341). Multiple columns can be pinned to the
+   * same side; they stack in `columns` order (left-pinned) or reverse order
+   * (right-pinned, so the last-declared right-pinned column sits flush
+   * against the grid's own right edge). When `selectable` is on and at
+   * least one column is pinned `'left'`, the selection checkbox/radio
+   * column automatically pins alongside it too (there's no reason to freeze
+   * a data column but let selection scroll away); the same applies to
+   * `rowCommands`' trailing actions column whenever any column is pinned
+   * `'right'`.
+   */
+  pinned?: 'left' | 'right';
+  /**
+   * Set false to keep this column read-only even while its row is being
+   * edited (`<DataTable editable>`, issue #545) — rendered via this
+   * column's own `render` in the edit co-grid instead of an editable
+   * field. Has no effect at all when `editable` is off.
+   * @default true
+   */
+  editable?: boolean;
+  /**
+   * Default+slot override for this column's field in the edit co-grid —
+   * mirrors `render`'s own shape (same `CellContext`), since a custom
+   * editor needs the same live value/row/index access `render` gets, not
+   * a static JSX slot. Falls back to a plain, density-compact `<Input>`
+   * bound to `key` when omitted. Has no effect when this column's own
+   * `editable` is `false`, or when the table's `editable` is off.
+   *
+   * **Called as a plain function (`col.editEditor(context)`), not
+   * rendered as JSX** — a real, Gemini-caught defect on this exact PR:
+   * a custom editor that calls a Hook (`useOptionalFormContext()`,
+   * e.g.) directly at its own top level runs that Hook call BEFORE
+   * `<Form>`'s own context provider is active (this function executes
+   * synchronously while building `<Form>`'s children, not after `<Form>`
+   * itself has rendered), so the Hook always sees no provider -- and
+   * separately violates the Rules of Hooks, since it's invoked from
+   * inside a `.map()` rather than from within an actual component. If
+   * your editor needs a Hook, put the Hook inside a real, separately
+   * declared component and return that component rendered as JSX
+   * instead: `editEditor: (context) => <MyEditor {...context} />`, not
+   * `editEditor: MyEditor` (which calls `MyEditor` directly rather than
+   * mounting it as a component at all) or a Hook called inline in the
+   * arrow function itself.
+   */
+  editEditor?: (context: CellContext<T>) => ReactNode;
+}
+
+/** One column's priority within a multi-column sort -- see `DataTableProps.sortBy` (issue #337). */
+export interface SortDescriptor {
+  key: string;
+  direction: 'asc' | 'desc';
+}
+
+/** One action button rendered per row in `<DataTable rowCommands>`'s trailing actions column. */
+export interface RowCommand<T = any> {
+  /** Stable id for this action -- becomes `command` in the `datatable:row_command` event emitted on click. */
+  id: string;
+  /** Visible label -- also the button's `aria-label`, since the rendered button is icon-only when `icon` is given. */
+  label: string;
+  /** Optional leading icon/glyph shown instead of the text label (the label still becomes `aria-label`/`title`). */
+  icon?: string;
+  /** Omit this specific command for a given row (e.g. hide "Delete" for a protected record) -- returning false skips rendering the button entirely, not just disables it. */
+  isVisible?: (record: T, index: number) => boolean;
+  /**
+   * Render this command's button disabled (still occupying its usual
+   * space) for a given row, rather than hiding it via `isVisible` --
+   * e.g. disabling "Edit" while that row is already being edited,
+   * instead of removing it and shifting every other command button's
+   * position. Unlike `isVisible`, this never changes how many buttons a
+   * row's actions cell renders.
+   */
+  isDisabled?: (record: T, index: number) => boolean;
 }
 
 /**
@@ -83,22 +227,80 @@ export interface DataTableProps<T = any> {
    * default). Set to false to virtualize across the *entire* sorted
    * dataset instead — no pagination footer, no page slicing — the
    * better fit once a dataset is too large to page through usefully.
-   * `pageSize`/`pageSizeOptions` are ignored in this mode.
+   * `defaultPageSize`/`pageSizeOptions` are ignored in this mode.
    * @default true
    */
   pagination?: boolean;
   /**
-   * Initial number of rows per page.
+   * Called once whenever the virtualization window's own trailing edge
+   * comes within `endReachedThreshold` rows of the end of `data` -- the
+   * signal a `pagination={false}` (continuous-scroll) consumer needs to
+   * lazy-load more rows from a server as the user scrolls near the end of
+   * what's currently loaded (issue #365). The actual continuous-scroll
+   * rendering/windowing needs no help from this -- `pagination={false}`
+   * already virtualizes across the whole `data` array with no page
+   * boundaries; this is purely an early-warning callback layered on top.
+   *
+   * Fires at most once per distinct `data.length` -- appending more rows
+   * (growing `data`) re-arms it for the next threshold crossing;
+   * scrolling back and forth within the same loaded set does not
+   * re-trigger it. Has no effect when `pagination` is true: a paginated
+   * table already has a complete, known page of data and Prev/Next
+   * navigation, so "near the end of the current page" isn't a signal to
+   * load more from a server the way it is in continuous-scroll mode.
+   * Also mirrored on the event bus as `datatable:end_reached`.
+   */
+  onEndReached?: () => void;
+  /**
+   * How many rows from the end of `data` the virtualization window's
+   * trailing edge must come within before `onEndReached` fires. Only
+   * meaningful alongside `onEndReached`.
    * @default 10
    */
-  pageSize?: number;
+  endReachedThreshold?: number;
   /**
-   * Options shown in the page-size dropdown.
+   * Initial number of rows per page. Named `default*` (issue #391 --
+   * renamed from the original `pageSize`) because that's exactly its
+   * contract: it seeds this table's internal page-size state once, the
+   * same uncontrolled-initial-value shape `defaultPage`/`defaultSortBy`/
+   * `defaultSelectedKeys`/`defaultQuickFilterValue`/`defaultColumnWidths`/
+   * `defaultDensity` all already use elsewhere in this component -- a
+   * later change to this prop's own value does NOT propagate; there is no
+   * live-syncing "controlled" counterpart for page size the way `page`
+   * itself has one. `'auto'` computes it live instead of using a fixed
+   * number -- `Math.floor(<measured body height> / itemHeight)` -- so a
+   * page always fills exactly the space it's given (no partial row cut
+   * off, no empty space at the bottom), recomputing whenever the container
+   * is resized or density changes `itemHeight`. Mirrors `containerHeight`'s
+   * own `'auto'` convention, and reuses the exact same live measurement
+   * (`useAdaptiveSize(bodyRef)`) that already drives it.
+   *
+   * Also the default (issue #419) -- an AI (or a human) reaching for
+   * `<DataTable>` with no opinion at all about page size gets a page that
+   * already fills its own container exactly, rather than an arbitrary
+   * fixed 10 that might leave half the available space empty or cut a row
+   * off. `'Auto'` is also always present as a real option in the
+   * page-size dropdown (alongside `pageSizeOptions`, not instead of it) --
+   * an end user can switch the table into or out of auto-sizing
+   * interactively; this prop only controls which one is selected first.
+   * @default 'auto'
+   */
+  defaultPageSize?: number | 'auto';
+  /**
+   * Options shown in the page-size dropdown, alongside the always-present
+   * "Auto" choice.
    * @default [5, 10, 25, 50, 100]
    */
   pageSizeOptions?: number[];
   /**
    * Height of each row in pixels (used for virtualization calculations).
+   * Left unset, this is derived from the active density instead of a fixed
+   * number -- `36`/`44`/`56` for compact/normal/spacious respectively
+   * (`DataTableSlice.ts`'s own `DENSITY_ROW_HEIGHT_PX`, the same values its
+   * `--ai-table-row-height` CSS variable is computed from) -- so switching
+   * density doesn't leave the real virtualization window measuring against
+   * stale numbers (issue #339). An explicit value here always wins over
+   * that derivation.
    * @default 44
    */
   itemHeight?: number;
@@ -150,26 +352,71 @@ export interface DataTableProps<T = any> {
    */
   onRowClick?: (record: T, index: number) => void;
   /**
-   * Controlled sort key. Pass a value (a column's `key`, or `null` for
-   * unsorted) to drive sorting from parent state — e.g. to persist it in
-   * a URL — instead of letting `<DataTable>` manage it internally. Omit
-   * entirely for the common uncontrolled case; `defaultSortKey` seeds
-   * that internal state instead.
+   * Renders a global/quick-filter search box above the table -- a simple
+   * case-insensitive substring match against every column's *resolved*
+   * value (`Column.accessorFn(record)` if given, else
+   * `record[Column.key]`; see `quickFilterValue`'s own doc for why this
+   * is the resolved value rather than a `Column.render`'s rendered
+   * output). Filtering happens before sorting/pagination/virtualization,
+   * so `aria-rowcount`, the "Showing X to Y of Z" footer, and the
+   * windowing math all already reflect the filtered count -- nothing
+   * else needs to know filtering happened at all.
+   * @default false
    */
-  sortKey?: string | null;
-  /** Initial sort key when uncontrolled (`sortKey` omitted). */
-  defaultSortKey?: string | null;
-  /** Controlled sort direction. Only meaningful alongside `sortKey`. @default 'asc' */
-  sortDirection?: 'asc' | 'desc';
-  /** Initial sort direction when uncontrolled. @default 'asc' */
-  defaultSortDirection?: 'asc' | 'desc';
+  quickFilter?: boolean;
   /**
-   * Called whenever sort changes, whether controlled or uncontrolled —
-   * mirrors `datatable:sorted`'s payload shape as direct props instead
-   * of a bus subscription. `key` is `null` when the cycle lands back on
-   * unsorted.
+   * Restricts which columns `quickFilter` searches against, by `Column.key`
+   * -- omit to search every column (the previous, only behavior). Doesn't
+   * change where the search input itself is rendered (the built-in
+   * `quickFilter` UI, or a consumer's own controlled `quickFilterValue`/
+   * `onQuickFilterChange` input) -- only which columns get matched.
    */
-  onSortChange?: (key: string | null, direction: 'asc' | 'desc') => void;
+  quickFilterFields?: ((keyof T & string) | (string & {}))[];
+  /**
+   * Controlled quick-filter value. Pass a value to drive it from parent
+   * state (e.g. to persist it in a URL) instead of letting `<DataTable>`
+   * manage it internally -- the same controlled/uncontrolled shape
+   * `sortBy`/`page`/`selectedKeys` already use. Omit for the common
+   * uncontrolled case; `defaultQuickFilterValue` seeds that internal
+   * state instead. Has no effect when `quickFilter` is false.
+   */
+  quickFilterValue?: string;
+  /** Initial quick-filter value when uncontrolled (`quickFilterValue` omitted). */
+  defaultQuickFilterValue?: string;
+  /**
+   * Called whenever the quick-filter value changes, whether controlled or
+   * uncontrolled -- mirrors `datatable:filtered`'s payload shape as a
+   * direct prop instead of a bus subscription, the same relationship
+   * `onSortChange` has to `datatable:sorted`. Changing the filter always
+   * resets the current page back to 1 (matching the page-size dropdown's
+   * own existing behavior) -- a page number valid for the old, larger
+   * result set can easily be past the end of a smaller filtered one.
+   */
+  onQuickFilterChange?: (value: string) => void;
+  /**
+   * Controlled multi-column sort, in priority order (index 0 = primary
+   * sort key). Pass an array to drive sorting from parent state — e.g. to
+   * persist it in a URL — instead of letting `<DataTable>` manage it
+   * internally. Omit entirely for the common uncontrolled case;
+   * `defaultSortBy` seeds that internal state instead.
+   *
+   * A plain click on a sortable header replaces the WHOLE array with just
+   * that one column -- the same asc -> desc -> unsorted cycle a
+   * single-sort table always had, still true for the common case where
+   * this never grows past one entry. Shift+click instead adds/cycles/
+   * removes that column as the next sort PRIORITY without disturbing the
+   * others, matching the Shift+click convention TanStack Table and AG
+   * Grid both already use for their own free multi-sort.
+   */
+  sortBy?: SortDescriptor[];
+  /** Initial multi-column sort when uncontrolled (`sortBy` omitted). */
+  defaultSortBy?: SortDescriptor[];
+  /**
+   * Called whenever the sort changes, whether controlled or uncontrolled —
+   * mirrors `datatable:sorted`'s payload shape as a direct prop instead of
+   * a bus subscription.
+   */
+  onSortChange?: (sortBy: SortDescriptor[]) => void;
   /**
    * Controlled current page (1-indexed). Pass a value to drive paging
    * from parent state instead of letting `<DataTable>` manage it
@@ -183,11 +430,29 @@ export interface DataTableProps<T = any> {
   /** Called whenever the page changes, whether controlled or uncontrolled. */
   onPageChange?: (page: number) => void;
   /**
-   * Adds a checkbox selection column and a bulk-action bar. Greenfield —
-   * there is no selection model on `<DataTable>` without this.
+   * Adds a selection column and a bulk-action bar. Greenfield — there is
+   * no selection model on `<DataTable>` without this. A row is also
+   * selectable by clicking anywhere on it (see `disableRowClickSelection`)
+   * — the checkbox/radio column is a redundant, always-available second
+   * affordance for the exact same action, not the only way to select.
    * @default false
    */
   selectable?: boolean;
+  /**
+   * `'multiple'` (the default) renders checkboxes, a 3-state "select all"
+   * header control, and lets a row click/Ctrl-click/Shift-click add to,
+   * toggle, or range-select the current selection. `'single'` renders a
+   * radio-style indicator instead, hides the "select all" control
+   * (meaningless for one choice), and makes every selection action —
+   * click, checkbox/radio, keyboard Space — simply replace the whole
+   * selection with just that one row, matching real `<input
+   * type="radio">` semantics (no modifier keys, no un-selecting by
+   * re-clicking the current choice). `selectedKeys`/`onSelectionChange`
+   * keep the same `string[]` shape either way, just constrained to 0 or 1
+   * entries in `'single'` mode.
+   * @default 'multiple'
+   */
+  selectionMode?: 'single' | 'multiple';
   /**
    * Controlled set of selected row keys (matching whatever `rowKey`
    * resolves to, stringified). Pass to drive selection from parent state
@@ -210,18 +475,286 @@ export interface DataTableProps<T = any> {
   /** Called whenever selection changes, whether controlled or uncontrolled. */
   onSelectionChange?: (selectedKeys: string[]) => void;
   /**
-   * Renders the action buttons in the bulk-action `<Toolbar>` that appears
-   * once at least one row is selected — the selection-count label is
-   * already provided; this renders only the actions themselves (e.g.
-   * "Delete", "Export"), receiving the current selection to act on.
+   * Set to disable click-to-select entirely, falling back to the
+   * checkbox/radio column as the only way to change selection — for a
+   * consumer whose `onRowClick` already does something unrelated to
+   * selection (open a detail panel, navigate) and doesn't want a click
+   * there to also select the row. Has no effect when `selectable` is
+   * false. `onRowClick` itself always keeps firing on every row click
+   * either way, per its own existing contract.
+   * @default false
    */
-  renderBulkActions?: (selectedKeys: string[]) => ReactNode;
+  disableRowClickSelection?: boolean;
+  /**
+   * Hides the checkbox/radio column entirely while `selectable` stays in
+   * effect — selection still works via row click (unless
+   * `disableRowClickSelection`) and keyboard Space, this just removes the
+   * visible per-row widget and the "select all" header control, for a
+   * table that wants row-highlight-only selection with no dedicated
+   * column taking up space. Every selected `<tr>` still carries
+   * `aria-selected="true"` regardless of this flag, so the selection
+   * state stays screen-reader-visible either way.
+   * @default false
+   */
+  hideSelectionColumn?: boolean;
+  /**
+   * Renders the action buttons for the current selection, shown centered
+   * in the same top toolbar row `quickFilter`/`densitySelector` share
+   * (alongside the "N selected" count, already provided) once at least
+   * one row is selected -- this renders only the actions themselves (e.g.
+   * "Delete", "Export"), receiving the current selection to act on.
+   *
+   * The second argument is only ever useful when `editable` is also true --
+   * `actions.startEditingRows` is the same batch-add this table's own
+   * editing key-set already exposes, letting a bulk "Edit selected" button
+   * fall out of composing the two already-independent selection/editing
+   * key-sets (issue #545) rather than needing its own dedicated prop.
+   * Ignore it for any other bulk action.
+   */
+  renderBulkActions?: (selectedKeys: string[], actions: { startEditingRows: (keys: string[]) => void }) => ReactNode;
+  /**
+   * Per-row action buttons rendered in a dedicated trailing column. Each
+   * click emits `datatable:row_command` on `aiBus` (`{ id: <table id>,
+   * command: <this RowCommand's own id>, key: <this row's resolved
+   * selection/row key>, index }`) instead of requiring a bespoke callback
+   * prop per action — an aiBus listener (an AI agent, an analytics
+   * subscriber, anything else) reacts to "the user clicked Edit/Delete/
+   * whatever on row N" the same generic way it already observes
+   * `datatable:row_clicked`/`datatable:selection_changed`. Omit for no
+   * actions column at all.
+   */
+  rowCommands?: RowCommand<T>[];
+  /**
+   * Controlled map of resized column widths (px), keyed by `Column.key`.
+   * Only columns the user has actually resized need appear -- a column
+   * absent from this map keeps rendering its own configured `width`. Pass
+   * to drive resized widths from parent state (e.g. to persist them to
+   * `localStorage`) instead of letting `<DataTable>` manage them
+   * internally. Omit for the common uncontrolled case; `defaultColumnWidths`
+   * seeds that internal state instead. Only meaningful for columns marked
+   * `resizable`.
+   */
+  columnWidths?: Record<string, number>;
+  /** Initial resized widths when uncontrolled (`columnWidths` omitted). */
+  defaultColumnWidths?: Record<string, number>;
+  /**
+   * Called once a resize completes (mouse/touch release, or an
+   * arrow-key/Home/End press), whether controlled or uncontrolled -- never
+   * on every intermediate drag tick, so this is safe to wire straight to a
+   * `localStorage` write without flooding it mid-drag.
+   */
+  onColumnWidthsChange?: (widths: Record<string, number>) => void;
   /** Per-instance overrides for density, border style, and striping. */
   overrides?: Partial<TableSliceState>;
+  /**
+   * Renders a built-in compact/normal/spacious toggle-button-group above
+   * the table (in the same bar `quickFilter`'s search box occupies) that
+   * drives density live -- both the CSS variables (padding/row height) and
+   * the real row height virtualization measures against, together (issue
+   * #339). Uses the `density`/`defaultDensity`/`onDensityChange` trio below
+   * for its state, the same controlled/uncontrolled shape every other
+   * `<DataTable>` feature already uses; enabling this without also passing
+   * `density`/`defaultDensity` starts from `overrides.density` (if given)
+   * or `'normal'`.
+   * @default false
+   */
+  densitySelector?: boolean;
+  /**
+   * Controlled live density -- drives the actual applied density (both the
+   * CSS variables and the real row height virtualization measures against)
+   * from parent state, taking precedence over `overrides.density` when both
+   * are given, since this represents an end user's own runtime choice
+   * rather than a developer-set default. Pairs naturally with your own
+   * external density UI when `densitySelector`'s built-in toggle group
+   * isn't the right fit. Omit for the common uncontrolled case;
+   * `defaultDensity` seeds that internal state instead. Passing neither
+   * this, `defaultDensity`, nor `densitySelector` leaves density governed
+   * entirely by `overrides.density` (or the theme's own default), exactly
+   * as before this feature existed.
+   */
+  density?: TableDensity;
+  /** Initial live density when uncontrolled (`density` omitted). Falls back to `overrides.density`, then `'normal'`. */
+  defaultDensity?: TableDensity;
+  /** Called whenever the live density changes, whether controlled or uncontrolled. */
+  onDensityChange?: (density: TableDensity) => void;
+  /**
+   * Renders a built-in "Export CSV" button (in the same top toolbar row
+   * `quickFilter`/`densitySelector` share) that downloads the *entire*
+   * currently filtered + sorted dataset -- every matching row across every
+   * page, not just the current page -- as a CSV file, using each column's
+   * `title` as its header and the same resolved cell value
+   * (`accessorFn(record)` if given, else `record[key]`) sorting already
+   * uses. A column's custom `render` output is never used for the CSV,
+   * since it can return arbitrary JSX with no meaningful plain-text form to
+   * fall back on. Also emits `datatable:exported` on the event bus.
+   * @default false
+   */
+  csvExport?: boolean;
+  /**
+   * File name for the CSV download triggered by `csvExport`.
+   * @default 'export.csv'
+   */
+  csvExportFileName?: string;
+  /**
+   * Renders a built-in "Columns" button (same top toolbar row) that opens a
+   * checklist menu letting an end user show/hide any column live -- every
+   * column from `columns` is listed, regardless of its current visibility,
+   * so a hidden column can always be re-shown from the same menu. A hidden
+   * column occupies no grid position at all (not just a visually-hidden
+   * one) -- it's skipped in the header, every body row, and CSV export
+   * (`csvExport` above) alike, and keyboard-nav column coordinates stay
+   * contiguous with no gap left behind. Uses the
+   * `hiddenColumns`/`defaultHiddenColumns`/`onHiddenColumnsChange` trio
+   * below for its state, the same controlled/uncontrolled shape every other
+   * built-in `<DataTable>` feature already uses.
+   * @default false
+   */
+  columnVisibility?: boolean;
+  /**
+   * Controlled set of hidden column keys (`Column.key`). Pass to drive
+   * column visibility from parent state (e.g. to persist it to
+   * `localStorage`) instead of letting `<DataTable>` manage it internally.
+   * Omit for the common uncontrolled case; `defaultHiddenColumns` seeds
+   * that internal state instead. Has an effect regardless of whether
+   * `columnVisibility`'s own built-in menu is rendered -- a consumer can
+   * drive column visibility entirely from their own external UI.
+   */
+  hiddenColumns?: string[];
+  /** Initial hidden columns when uncontrolled (`hiddenColumns` omitted). */
+  defaultHiddenColumns?: string[];
+  /** Called whenever the hidden-column set changes, whether controlled or uncontrolled -- always the FULL current set, not just the one column that changed. */
+  onHiddenColumnsChange?: (hiddenColumns: string[]) => void;
+  /**
+   * Renders arbitrary caller content into the same top toolbar row
+   * `quickFilter`'s search box and `densitySelector`'s toggle group share
+   * -- alongside density, on the right, since that's the one slot never
+   * claimed by a built-in feature. For a consumer who wants their own
+   * actions (a refresh button, an export button) living in that same bar
+   * instead of a separate one above/below the table. Mounts the bar even
+   * if `quickFilter`/`densitySelector`/`selectable` are all false, so this
+   * alone is enough to get the row at all.
+   */
+  renderToolbarExtra?: () => ReactNode;
+  /**
+   * Rendered in place of the row set when there's nothing to show (the
+   * sorted dataset is empty) — the header and, if `pagination` is true,
+   * the pagination footer (correctly showing "0 of 0") still render
+   * normally around it. Omit for the previous default: an empty `<tbody>`
+   * with no message at all.
+   */
+  emptyState?: ReactNode;
+  /**
+   * Adds row-level inline editing (issue #545) via a separate "edit
+   * co-grid" -- a second, small grid sharing this table's own column
+   * order/widths, consolidating every row currently being edited (from
+   * ANY page/sort/filter) into one place. Greenfield, mirrors
+   * `selectable`'s own gate. Requires BOTH `rowKey` (a real one — see its
+   * own doc for why the index-based fallback can't be used here) and
+   * `editSchema` whenever true; omitting either throws immediately rather
+   * than silently degrading, since the co-grid cannot resolve records
+   * correctly without them.
+   *
+   * (Not currently enforced as a TypeScript-level requirement via a
+   * discriminated prop type — the runtime throw is the real, load-bearing
+   * check here. A discriminated `editable: true` overload was considered
+   * but deferred: its interaction with the manifest/docs generator's own
+   * props extraction hasn't been verified, and getting that wrong would
+   * silently break a required CI check. Worth revisiting as a follow-up
+   * once that's confirmed safe.)
+   * @default false
+   */
+  editable?: boolean;
+  /**
+   * The edit co-grid's validation schema — required whenever `editable`
+   * is true. For a consumer who genuinely doesn't care about validation,
+   * `createPermissiveTableSchema(data[0])` builds a schema that renders
+   * every editable column as a plain text box with no real validation,
+   * rather than requiring one to be hand-written for the trivial case.
+   */
+  editSchema?: ZodType<T>;
+  /** Controlled set of keys currently being edited. Omit for the common uncontrolled case; `defaultEditingKeys` seeds that internal state instead. */
+  editingKeys?: string[];
+  /** Initial editing keys when uncontrolled (`editingKeys` omitted). */
+  defaultEditingKeys?: string[];
+  /** Called whenever the editing key-set changes, whether controlled or uncontrolled — always the FULL current set. */
+  onEditingKeysChange?: (editingKeys: string[]) => void;
+  /** Called when a co-grid row's Save commits, with the edit schema's own parsed output (never raw field strings — matches `<Form>`'s own `onSubmit` contract). */
+  onRowEditSave?: (record: T, index: number, nextValues: T) => void;
+  /** Called when a co-grid row's Cancel discards its draft. */
+  onRowEditCancel?: (record: T, index: number) => void;
+  /**
+   * Hard ceiling on how many rows the edit co-grid will ever render at
+   * once. The co-grid is deliberately unvirtualized (issue #545) so it can
+   * grow taller than a fixed row height and stay decoupled from the main
+   * grid's own windowing -- nothing else bounds it, so without this, a
+   * bulk "edit all" on a large table (or a controlled `editingKeys` prop
+   * set carelessly) would render one full `<Form>` per row with no limit.
+   * Enforced regardless of how the editing set grew, including a
+   * controlled `editingKeys` prop set larger than this directly -- only
+   * the first `maxEditingRows` keys (by insertion order) actually render;
+   * the rest are silently excluded from the co-grid (with a dev-mode
+   * console warning) but still genuinely present in `editingKeys` itself.
+   * @default 50
+   */
+  maxEditingRows?: number;
 }
 
 /**
- * @manifest Virtualized, sortable, paginated data table with sticky headers
+ * Shared style for the pagination footer's First/Prev/Next/Last buttons --
+ * pulled out once four near-identical copies (First/Last, issue #485,
+ * joined the pre-existing Prev/Next) made "three similar lines is better
+ * than a premature abstraction" (this repo's own stated default) tip the
+ * other way: four independently-hand-maintained copies is a real risk of
+ * one drifting from the others, not just a style preference. Pure and
+ * module-level (not a component-scoped closure) since it depends only on
+ * its own `disabled` argument, not on anything from `<DataTable>`'s own
+ * render.
+ */
+/**
+ * Synthetic `hiddenColumnSet` key for the trailing `rowCommands` actions
+ * column -- that column isn't a real `Column<T>` (no `.key` of its own,
+ * just an array of button definitions), so it needs its own stable
+ * sentinel to participate in the same show/hide mechanism a real column's
+ * `col.key` already uses. Chosen to be un-collidable with a real column
+ * key without requiring one (a consumer's own data could plausibly use a
+ * field named `rowCommands`).
+ */
+const ROW_COMMANDS_COLUMN_KEY = '__ai-datatable-row-commands__';
+
+// Issue #591 (revised): real SVG icons from lucide-react rather than a
+// text glyph -- Rows4/Rows3/Rows2 (more, smaller rows -> fewer, larger
+// rows) is the same "row count as a density proxy" convention real
+// data-grid density pickers use, and reads unambiguously as a spacing
+// control rather than a generic size label. This also sidesteps the
+// WCAG SC 2.5.3 concern the earlier S/M/L-letter version had (Gemini's
+// review of #592): a purely pictographic icon carries no visible TEXT
+// for the accessible name to have to contain, unlike a literal letter.
+// Every lucide icon defaults to aria-hidden="true" on its own <svg>
+// (confirmed in lucide-react's source, `hasA11yProp`) as long as no
+// aria-*/title/role prop is passed directly to it, so nothing extra is
+// needed here beyond the existing <VisuallyHidden> label at each of
+// this map's call sites.
+const DENSITY_OPTION_ICON: Record<TableDensity, React.ComponentType<{ size?: string | number }>> = {
+  compact: Rows4,
+  normal: Rows3,
+  spacious: Rows2,
+};
+
+function paginationNavButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: 'var(--ai-padding-xs, 0.25rem 0.5rem)',
+    border: '0.0625rem solid var(--ai-border, #d1d5db)',
+    background: 'var(--ai-bg-surface, #ffffff)',
+    color: 'var(--ai-text-primary, #111827)',
+    fontSize: '0.75rem',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
+  };
+}
+
+/**
+ * @manifest Virtualized, sortable, paginated data table with sticky headers and real WAI-ARIA grid keyboard navigation
  * @manifestCategory Data Display
  * @manifestAntiPatternAvoid Fake per-row emphasis via `column.render` (styling each cell individually to approximate a highlighted row), or hand-roll row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic)
  * @manifestAntiPatternInstead Use `<DataTable rowSubtheme={(record) => ...}>` for row emphasis — classifies a row into `'error'`/`'success'`/`'warning'`/`'info'` and tints the actual row background/border, not a per-cell approximation — and `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` for selection, where the checkbox column, 3-state header checkbox, and cross-page persistence all come built in
@@ -231,31 +764,110 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   data,
   columns,
   pagination = true,
-  pageSize: initialPageSize = 10,
+  onEndReached,
+  endReachedThreshold = 10,
+  defaultPageSize: initialPageSize = 'auto',
   pageSizeOptions = [5, 10, 25, 50, 100],
-  itemHeight = 44,
+  itemHeight: explicitItemHeight,
   containerHeight = 'auto',
   rowKey,
   rowSubtheme,
   onRowClick,
-  sortKey: controlledSortKey,
-  defaultSortKey,
-  sortDirection: controlledSortDirection,
-  defaultSortDirection,
+  quickFilter = false,
+  quickFilterFields,
+  quickFilterValue: controlledQuickFilterValue,
+  defaultQuickFilterValue,
+  onQuickFilterChange,
+  sortBy: controlledSortBy,
+  defaultSortBy,
   onSortChange,
   page: controlledPage,
   defaultPage,
   onPageChange,
   selectable = false,
+  selectionMode = 'multiple',
   selectedKeys: controlledSelectedKeys,
   defaultSelectedKeys,
   onSelectionChange,
+  disableRowClickSelection = false,
+  hideSelectionColumn = false,
   renderBulkActions,
+  rowCommands,
+  columnWidths: controlledColumnWidths,
+  defaultColumnWidths,
+  onColumnWidthsChange,
   overrides,
+  densitySelector = false,
+  density: controlledDensity,
+  defaultDensity,
+  onDensityChange,
+  csvExport = false,
+  csvExportFileName = 'export.csv',
+  columnVisibility = false,
+  hiddenColumns: controlledHiddenColumns,
+  defaultHiddenColumns,
+  onHiddenColumnsChange,
+  renderToolbarExtra,
+  emptyState,
+  editable = false,
+  editSchema,
+  editingKeys: controlledEditingKeys,
+  defaultEditingKeys,
+  onEditingKeysChange,
+  onRowEditSave,
+  onRowEditCancel,
+  maxEditingRows = 50,
 }: DataTableProps<T>) {
+  // Real, hard requirement (issue #545), not a soft warning: the edit
+  // co-grid resolves records via `rowKey` against the raw `data` array,
+  // completely decoupled from whatever page/sort/filter the row was
+  // originally clicked from -- the index-based fallback key actively
+  // resolves to the WRONG record once the view changes, it isn't merely
+  // "less precise" the way it is for selection. Thrown unconditionally
+  // (not `isDevBuild()`-gated) since this is an architectural
+  // precondition the co-grid cannot function without, not a dev-only
+  // nicety -- defense-in-depth for a JS caller or an `as any` cast that
+  // bypasses `editSchema`'s own TS type.
+  if (editable && (!rowKey || !editSchema)) {
+    throw new Error('<DataTable editable> requires both `rowKey` and `editSchema` to be set.');
+  }
   const id = useStableId(propId, 'datatable');
   const strings = useLocaleStrings().dataTable;
-  const { vars } = useSliceOverrides(DataTableThemeSlice, overrides);
+  const targetDocument = useTargetDocument();
+
+  // The live density feature (issue #339) is only "active" -- i.e. allowed
+  // to override whatever `overrides.density`/the theme's own default would
+  // otherwise apply -- when the consumer actually opted in via one of these
+  // three props. Without that gate, useTableDensity's own internal
+  // 'normal' fallback would silently override a live global theme default
+  // (set via the Theme Editor) for every <DataTable> that never touched
+  // density at all, which is exactly the class of regression `overrides`'s
+  // own sparse-CSS-variable design (useSliceOverrides) exists to avoid.
+  const densityFeatureActive = densitySelector || controlledDensity !== undefined || defaultDensity !== undefined;
+  const { density: liveDensity, handleDensityChange } = useTableDensity({
+    density: controlledDensity,
+    defaultDensity: defaultDensity ?? overrides?.density,
+    onDensityChange,
+    tableId: id,
+  });
+  // Matches `effectiveBorderStyle` below's own established pattern (a
+  // best-effort JS read of what's actually in effect, not a live read of
+  // the current global theme) for the non-feature case, and additionally
+  // folds in the live toggle state when the feature is engaged.
+  const effectiveDensity: TableDensity = densityFeatureActive
+    ? liveDensity
+    : overrides?.density ?? DataTableThemeSlice.defaultState.density;
+  const mergedOverrides = densityFeatureActive ? { ...overrides, density: liveDensity } : overrides;
+  const itemHeight = explicitItemHeight ?? DENSITY_ROW_HEIGHT_PX[effectiveDensity];
+  // rowCommands' own action buttons must fit within THIS density's real
+  // per-row content budget -- see DENSITY_ROW_COMMAND_BUTTON_PX's own
+  // comment (DataTableSlice.tsx) for the real, screenshot-confirmed
+  // overflow this closes. `explicitItemHeight` (a consumer-supplied fixed
+  // row height, not density-derived) has no matching per-density budget of
+  // its own, so it keeps the original, unscaled 28px rather than guessing
+  // at a fit against a row height this table didn't choose.
+  const rowCommandButtonSizePx = explicitItemHeight ? 28 : DENSITY_ROW_COMMAND_BUTTON_PX[effectiveDensity];
+  const { vars } = useSliceOverrides(DataTableThemeSlice, mergedOverrides);
   // Row-level borders below are set directly in JS (not through
   // --ai-table-border, which only reaches the cells' borderRight — see that
   // usage further down), so a flagged row's dashed border needs its own
@@ -264,18 +876,102 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   const effectiveBorderStyle = overrides?.borderStyle ?? DataTableThemeSlice.defaultState.borderStyle;
   useInjectInteractionStyles();
 
-  // Sort and page each follow the same controlled/uncontrolled split as
-  // TabStrip's activeId: a prop of `undefined` means "manage it
-  // internally" (seeded from the matching `default*` prop), anything else
-  // means the parent owns that state and this component only ever reads
-  // it back through the resolved `sortKey`/`currentPage` below.
-  const [internalSortKey, setInternalSortKey] = useState<string | null>(defaultSortKey ?? null);
-  const [internalSortDirection, setInternalSortDirection] = useState<'asc' | 'desc'>(defaultSortDirection ?? 'asc');
-  const isSortControlled = controlledSortKey !== undefined;
-  const sortKey = isSortControlled ? controlledSortKey : internalSortKey;
-  const sortDirection = isSortControlled ? controlledSortDirection ?? 'asc' : internalSortDirection;
+  // Column show/hide (issue #340). `visibleColumns` is what every render
+  // loop below (colgroup, header row, body cells) actually iterates over --
+  // a hidden column occupies no grid position at all, not just a
+  // display:none one, so keyboard-nav column coordinates stay contiguous
+  // (0..N-1) with no gap left behind by a hidden column. Sorting/quick-filter
+  // deliberately keep using the FULL `columns` array (below), not
+  // `visibleColumns` -- hiding a column doesn't clear a sort already applied
+  // to it, and quickFilterFields is the one dedicated, explicit mechanism
+  // for scoping which columns quick-filter searches, independent of display
+  // visibility.
+  const { hiddenColumnSet, toggleColumnVisibility } = useTableColumnVisibility({
+    hiddenColumns: controlledHiddenColumns,
+    defaultHiddenColumns,
+    onHiddenColumnsChange,
+    tableId: id,
+  });
+  // Not wrapped in useMemo -- hiddenColumnSet is itself a fresh Set on every
+  // render (useTableColumnVisibility recomputes it from the hiddenColumns
+  // array each call), so a useMemo keyed on it would recompute every render
+  // anyway; a plain filter() over a typically-small columns array costs
+  // nothing extra by skipping the memoization machinery here.
+  // A pinned column is never hideable (reported directly: pinning exists
+  // specifically to keep a column always visible while the rest scrolls
+  // underneath it, so letting the same column also be toggled off via the
+  // visibility menu contradicts its own reason for being pinned) -- `c.pinned
+  // ||` forces it into visibleColumns regardless of hiddenColumnSet's actual
+  // content, defensive against a controlled `hiddenColumns` prop a consumer
+  // mistakenly populated with a pinned column's key, not just against this
+  // component's own menu (which excludes pinned columns from its checkbox
+  // list entirely, below).
+  const visibleColumns = columns.filter(c => c.pinned || !hiddenColumnSet.has(c.key));
+  // Render order for the header/body loops (issue #341) -- every
+  // `pinned: 'left'` column first (in their relative `columns` order), then
+  // every unpinned column, then every `pinned: 'right'` column last.
+  // Deliberately NOT the same as `visibleColumns`'s own declared order:
+  // confirmed via a real, live browser (not assumed) that `position: sticky`
+  // on adjacent `<table>` cells breaks -- the second sticky cell's stuck
+  // position renders wrong -- the moment a non-sticky cell sits BETWEEN two
+  // sticky ones in the same row, which is exactly what happens if a pinned
+  // column stays in its original declared position instead of moving next
+  // to its own edge. This matches how every real production data grid
+  // (AG Grid, TanStack Table, MUI X) already handles pinned columns --
+  // rendered in dedicated left/center/right sections, never interleaved --
+  // not a Toolcrib-specific workaround. `visibleColumns` itself (declared
+  // order) stays what CSV export/quickFilter/sorting use -- this reordering
+  // is purely a rendering concern, not a data-shape one.
+  const displayColumns = [
+    ...visibleColumns.filter(c => c.pinned === 'left'),
+    ...visibleColumns.filter(c => !c.pinned),
+    ...visibleColumns.filter(c => c.pinned === 'right'),
+  ];
 
-  const [pageSize, setPageSize] = useState(initialPageSize);
+  // Filtering happens BEFORE sorting -- useTableSort receives filteredData,
+  // not the raw data prop, so aria-rowcount/the pagination footer/the
+  // virtualization windowing math downstream all already reflect the
+  // filtered count without needing their own separate awareness that
+  // filtering happened at all.
+  const { quickFilterValue, filteredData, handleQuickFilterChange } = useTableQuickFilter({
+    data,
+    columns,
+    quickFilterValue: controlledQuickFilterValue,
+    defaultQuickFilterValue,
+    onQuickFilterChange,
+    tableId: id,
+    quickFilterFields,
+  });
+
+  const { sortBy, sortedData, handleSort } = useTableSort({
+    data: filteredData,
+    columns,
+    sortBy: controlledSortBy,
+    defaultSortBy,
+    onSortChange,
+    tableId: id,
+  });
+  const getSortDescriptor = (key: string): SortDescriptor | undefined => sortBy.find(d => d.key === key);
+
+  // Issue #419: 'auto' is now a live-selectable dropdown choice, not just
+  // a one-time uncontrolled seed -- `defaultPageSize="auto"` still seeds
+  // the *initial* selection the same way `defaultPage`/`defaultSortBy`/etc.
+  // already do (a later change to the prop itself still doesn't propagate,
+  // same as before), but the dropdown below can now switch the table
+  // between 'auto' and any fixed size interactively, which it couldn't do
+  // at all previously (the dropdown was simply absent whenever the prop
+  // said 'auto'). One state variable for the whole selection, not two
+  // (a boolean + a number), so there's exactly one source of truth for
+  // "what does the dropdown currently show" -- the previous two-variable
+  // shape independently tracked a boolean derived only from the initial
+  // prop (never updated after mount) and a number, which made "the
+  // dropdown picked auto" inexpressible as a state transition at all.
+  const [pageSizeSelection, setPageSizeSelection] = useState<number | 'auto'>(initialPageSize);
+  const isAutoPageSize = pageSizeSelection === 'auto';
+  // Only meaningful when pageSizeSelection itself isn't 'auto' -- see
+  // effectivePageSize below, which is what every real page-size
+  // computation downstream actually uses.
+  const pageSize = typeof pageSizeSelection === 'number' ? pageSizeSelection : 10;
   // usePagination's own onPageChange closure runs synchronously inside
   // whatever event handler called goToPage — including the page-size
   // select's handler below, which changes pageSize and resets to page 1 in
@@ -285,7 +981,81 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // one case. Kept in sync every render; the page-size handler additionally
   // writes it synchronously before calling goToPage, so it's always current
   // by the time onPageChange reads it, regardless of React's batching.
-  const pageSizeRef = useRef(pageSize);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const { height: observedHeight, width: observedBodyWidth } = useAdaptiveSize(bodyRef);
+  // The sticky <thead> is a normal-flow child of bodyRef's own scrollable
+  // div (sticky positioning keeps an element in-flow, unlike absolute/
+  // fixed -- it only changes how it's positioned once scrolled past, not
+  // whether it occupies real space before that). observedHeight measures
+  // bodyRef's WHOLE box, header included, so subtracting the header's own
+  // real height here is what's actually left over for body rows -- without
+  // it, computeAutoPageSize overcounts by however tall the header is,
+  // reliably producing one row too many and a real (if often small)
+  // vertical scrollbar despite "Auto" claiming an exact fit. Found via the
+  // same investigation as DENSITY_ROW_COMMAND_BUTTON_PX's own bug (both
+  // surfaced by the identical repro -- defaultPageSize="auto" at
+  // density="compact" -- but this one is a distinct root cause: it's
+  // fully independent of row content, driven purely by the header's own
+  // height never being accounted for at all).
+  //
+  // A LIVE `useAdaptiveSize(theadRef)` measurement was tried first and
+  // caused a real, confirmed infinite-render-loop crash ("Too many
+  // re-renders"), not just a theoretical risk -- `effectivePageSize`
+  // (downstream of this value) feeds `resetKey` a few lines down, which
+  // remounts the virtualized row set on change; a live-measured header
+  // height that itself depends on that same render cycle closes a
+  // measure -> resize-event -> pageSize change -> resetKey change ->
+  // remount -> re-measure loop the instant the freshly-measured height
+  // differs from the previous one by even a sub-pixel. The header's real
+  // height has no legitimate reason to depend on row count/pageSize at
+  // all (it's driven by column-title text + padding, both density-only
+  // concerns), so a plain computed constant -- the same
+  // Math.max/`TEXT_LINE_HEIGHT_PX`-plus-padding approach
+  // `DENSITY_ROW_HEIGHT_PX` itself already uses -- sidesteps the whole
+  // feedback path structurally rather than trying to dampen it.
+  const headerHeight = DENSITY_HEADER_HEIGHT_PX[effectiveDensity];
+
+  // defaultPageSize="auto" / the dropdown's own "Auto" option (issue #364,
+  // #419): reuses the exact same live measurement that already drives
+  // containerHeight="auto" -- Math.floor(<real body height minus the
+  // header's own height> / itemHeight) fills a page with exactly as many
+  // rows as fit, recomputing whenever the container resizes or density
+  // changes itemHeight (density changes the header's own height too, via
+  // DENSITY_HEADER_HEIGHT_PX). Falls back to AUTO_HEIGHT_FALLBACK_PX (the
+  // same constant useTableVirtualization itself falls back to) before the
+  // very first ResizeObserver report, so the initial render isn't a
+  // jarring 0-row page. Math.max(1, ...) guards a pathologically short/
+  // hidden container from computing a page size of
+  // 0 (no rows would ever be reachable). Factored into a named function,
+  // not inlined only where effectivePageSize needs it -- the dropdown's
+  // own onChange handler below also needs this exact value synchronously,
+  // the moment a user switches TO "Auto", for the same reason pageSizeRef
+  // has to be written before goToPage runs (see that ref's own comment).
+  //
+  // AUTO_PAGE_SIZE_SAFETY_PX (below): a real CI-only overflow (issue #542)
+  // was root-caused to the header's sort-button title WRAPPING to a 2nd
+  // line under CI's Linux font stack at a column width that fit on one
+  // line under a local Windows browser -- real glyph widths for
+  // nominally-identical CSS genuinely differ across platforms/fonts, and a
+  // wrap point is exactly the kind of thing that shifts because of it.
+  // Fixed at the actual source (the title now truncates with an ellipsis
+  // instead of wrapping, matching what every body <td> already does --
+  // see that button's own style comment), which is what makes
+  // `headerHeight`'s single-line assumption sound again on every platform,
+  // not just this margin. What's left here is the same small, ordinary
+  // margin `CONTENT_VERTICAL_SAFETY_PX` already establishes as this
+  // codebase's own standing practice for line-height/font-metric slack
+  // that has nothing to do with wrapping -- guards a residual sub-pixel
+  // difference, not a specific known bug.
+  const AUTO_PAGE_SIZE_SAFETY_PX = 2;
+  const computeAutoPageSize = () =>
+    Math.max(
+      1,
+      Math.floor(Math.max(0, (observedHeight > 0 ? observedHeight : AUTO_HEIGHT_FALLBACK_PX) - headerHeight - AUTO_PAGE_SIZE_SAFETY_PX) / itemHeight)
+    );
+  const effectivePageSize = isAutoPageSize ? computeAutoPageSize() : pageSize;
+
+  const pageSizeRef = useRef(effectivePageSize);
   // useLayoutEffect, not a bare assignment during render -- writing to a
   // ref during render is unsafe under React's stricter rules (a discarded/
   // aborted render attempt could write a value that never actually
@@ -294,52 +1064,10 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // early enough that "kept in sync every render" (this comment's own
   // original claim) still holds by the time any event handler reads it.
   useLayoutEffect(() => {
-    pageSizeRef.current = pageSize;
-  }, [pageSize]);
-  const [scrollTop, setScrollTop] = useState(0);
+    pageSizeRef.current = effectivePageSize;
+  }, [effectivePageSize]);
 
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const { height: observedHeight } = useAdaptiveSize(bodyRef);
-
-  // Scroll events are throttled to one setScrollTop per animation frame (see
-  // onScroll below) via these two refs.
-  const latestScrollTopRef = useRef(0);
-  const scrollRafRef = useRef<number | null>(null);
-
-  // 1. Sorting
-  const sortedData = useMemo(() => {
-    if (!sortKey) return data;
-    // A column with `accessorFn` sorts by its computed value instead of a
-    // direct `record[sortKey]` read — the same function that produces its
-    // cell value.
-    const sortColumn = columns.find(c => c.key === sortKey);
-    const getValue = (record: T): unknown => (sortColumn?.accessorFn ? sortColumn.accessorFn(record) : record[sortKey]);
-    return [...data].sort((a, b) => {
-      const valA = getValue(a);
-      const valB = getValue(b);
-      if (valA === valB) return 0;
-      if (valA == null) return 1;
-      if (valB == null) return -1;
-      if (typeof valA === 'number' && typeof valB === 'number') {
-        // A NaN operand makes `valA - valB` itself NaN, which
-        // Array.prototype.sort treats as an unspecified (non-crashing but
-        // effectively unsorted) comparison result — sort NaN to the end,
-        // the same place `null`/`undefined` land above, rather than
-        // leaving its position undefined.
-        if (Number.isNaN(valA) && Number.isNaN(valB)) return 0;
-        if (Number.isNaN(valA)) return 1;
-        if (Number.isNaN(valB)) return -1;
-        return sortDirection === 'asc' ? valA - valB : valB - valA;
-      }
-      const strA = String(valA).toLowerCase();
-      const strB = String(valB).toLowerCase();
-      if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
-      if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [data, sortKey, sortDirection, columns]);
-
-  // 2. Pagination — page-index math shared with <Pagination> via the
+  // Pagination — page-index math shared with <Pagination> via the
   // usePagination hook (src/components/shared/usePagination.ts), so there's
   // exactly one page-clamping/controlled-state implementation, not two that
   // can drift. `paginatedData` below still short-circuits entirely when
@@ -348,7 +1076,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // one page at a time.
   const { currentPage: validCurrentPage, totalPages, goToPage: paginationGoToPage } = usePagination({
     totalItems: sortedData.length,
-    pageSize,
+    pageSize: effectivePageSize,
     page: controlledPage,
     defaultPage,
     onPageChange: page => {
@@ -357,54 +1085,37 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
     },
   });
 
-  // Nothing previously reset scrollTop (state or the real DOM scroll
-  // position) when the page changed — scrolling deep into page 1, then
-  // paging forward, left the virtualization window (startIndex/endIndex
-  // below) computed from a scroll offset that belonged to a completely
-  // different page's row count, which could render as an apparently empty
-  // table until the user manually scrolled back up. Sorting reorders the
-  // current page's rows exactly the same way pagination does, so it has to
-  // reset the window too — sortKey/sortDirection are included below for
-  // that reason, not left out as an oversight.
-  //
-  // Also cancels any in-flight scroll rAF and clears latestScrollTopRef:
-  // without this, a scroll on the *old* page that was still waiting for its
-  // throttled frame when the page/sort changed would fire after this reset,
-  // calling setScrollTop with the stale pre-change offset and silently
-  // undoing the reset above — reintroducing the exact blank-table bug this
-  // exists to prevent.
-  //
-  // The scrollTop *state* reset happens during render (React's documented
-  // "adjust state when a dependency changes" pattern), not inside the effect
-  // below -- avoids an extra render-then-effect-then-rerender cascade for
-  // the state half of this reset. The effect still owns the real-DOM/RAF
-  // side effects (cancelling a pending frame, resetting the actual scroll
-  // position), which can only happen after commit regardless. Since both
-  // run synchronously within the same tick (render+commit+effects all
-  // finish before the browser's next animation frame), a still-pending rAF
-  // from the old page is cancelled before it could ever fire with a stale
-  // offset -- same ordering guarantee the original single-effect version had.
-  const paginationSortKey = `${validCurrentPage}|${pageSize}|${sortKey}|${sortDirection}`;
-  const [prevPaginationSortKey, setPrevPaginationSortKey] = useState(paginationSortKey);
-  if (paginationSortKey !== prevPaginationSortKey) {
-    setPrevPaginationSortKey(paginationSortKey);
-    setScrollTop(0);
-  }
-
-  useEffect(() => {
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
-    latestScrollTopRef.current = 0;
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [validCurrentPage, pageSize, sortKey, sortDirection]);
-
   const paginatedData = useMemo(() => {
     if (!pagination) return sortedData;
-    const start = (validCurrentPage - 1) * pageSize;
-    return sortedData.slice(start, start + pageSize);
-  }, [sortedData, validCurrentPage, pageSize, pagination]);
+    const start = (validCurrentPage - 1) * effectivePageSize;
+    return sortedData.slice(start, start + effectivePageSize);
+  }, [sortedData, validCurrentPage, effectivePageSize, pagination]);
+
+  // A page number valid for the old, larger result set can easily be past
+  // the end of a smaller filtered one -- reset to page 1 on every filter
+  // change, the same explicit `paginationGoToPage(1)` call the page-size
+  // dropdown's own onChange already makes for the identical reason, rather
+  // than relying on usePagination's own clamping (which would land on
+  // whatever the new LAST valid page is, not necessarily page 1).
+  const handleQuickFilterInputChange = (value: string) => {
+    handleQuickFilterChange(value);
+    paginationGoToPage(1);
+  };
+
+  // CSV export (issue #338) -- exports `sortedData`, the FULL filtered +
+  // sorted dataset (post-quickFilter, post-sort, pre-pagination-slice), not
+  // just `paginatedData` (the current page). "Export everything I'm
+  // currently looking at, filtered and ordered the way I set it up" is the
+  // useful default every competitor's own free CSV export already matches;
+  // exporting only the current page would silently drop every other page's
+  // rows, which is not what a user reaching for "export" expects. Uses
+  // `visibleColumns` (issue #340), not the full `columns` -- a column the
+  // user has explicitly hidden shouldn't reappear in the exported file
+  // either, matching "export what I can currently see."
+  const handleCsvExport = () => {
+    downloadCsvFile(csvExportFileName, columnsToCsv(visibleColumns, sortedData));
+    aiBus.emit('datatable:exported', { id, rowCount: sortedData.length });
+  };
 
   // Row selection. `pageOffset` is 0 when pagination is disabled
   // (`paginatedData` is already the full sorted array in that case, so its
@@ -413,119 +1124,724 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
   // fallback below, entirely separate from `rowKey`'s own existing
   // page-relative index contract (`actualIndex` in the row-render loop),
   // which this doesn't change.
-  const pageOffset = pagination ? (validCurrentPage - 1) * pageSize : 0;
-  const getSelectionKey = (record: T, pageRelativeIndex: number): string =>
-    rowKey ? String(rowKey(record, pageRelativeIndex)) : String(pageOffset + pageRelativeIndex);
+  const pageOffset = pagination ? (validCurrentPage - 1) * effectivePageSize : 0;
 
-  const [internalSelectedKeys, setInternalSelectedKeys] = useState<Set<string>>(
-    () => new Set(defaultSelectedKeys ?? [])
-  );
-  const isSelectionControlled = controlledSelectedKeys !== undefined;
-  const selectedKeySet = isSelectionControlled ? new Set(controlledSelectedKeys) : internalSelectedKeys;
+  const {
+    selectedKeySet,
+    getSelectionKey,
+    toggleRowSelected,
+    toggleSelectAllOnPage,
+    handleRowSelectClick,
+    allOnPageSelected,
+    someOnPageSelected,
+  } = useTableSelection({
+    selectable,
+    selectionMode,
+    selectedKeys: controlledSelectedKeys,
+    defaultSelectedKeys,
+    onSelectionChange,
+    tableId: id,
+    rowKey,
+    pageOffset,
+    currentPageRecords: paginatedData,
+  });
 
-  const updateSelection = (next: Set<string>) => {
-    if (!isSelectionControlled) setInternalSelectedKeys(next);
-    const arr = Array.from(next);
-    onSelectionChange?.(arr);
-    aiBus.emit('datatable:selection_changed', { id, selectedKeys: arr });
+  const {
+    editingKeySet,
+    cappedEditingKeys,
+    truncatedEditingCount,
+    currentPageEditingKeys,
+    recordByEditKey,
+    getEditingKey,
+    startEditingRow,
+    startEditingRows,
+    cancelEditingRow,
+    saveEditingRow,
+  } = useTableEditing({
+    editable,
+    editingKeys: controlledEditingKeys,
+    defaultEditingKeys,
+    onEditingKeysChange,
+    tableId: id,
+    rowKey,
+    data,
+    currentPageRecords: paginatedData,
+    maxEditingRows,
+  });
+
+  // Collapsing the co-grid is purely a rendering choice (see EditCoGrid's
+  // own `collapsed` prop) -- it never touches `editingKeySet`, so drafts
+  // stay alive underneath exactly as issue #545 section 5 requires. Local,
+  // uncontrolled state is enough: nothing in the design calls for a
+  // consumer-controlled version of this, unlike selection/editing itself.
+  const [isCoGridCollapsed, setIsCoGridCollapsed] = useState(false);
+  // Mirrors the co-grid's own mount condition (`editingKeySet.size > 0`,
+  // not the capped/truncated view) -- no point offering a toggle for a
+  // co-grid that isn't even rendered.
+  const showCoGridToggle = editable && editingKeySet.size > 0;
+  // Gemini's PR #571 review, confirmed real: without this, finishing (or
+  // cancelling) every open edit while collapsed left `isCoGridCollapsed`
+  // stuck `true` -- starting a LATER, unrelated edit would then silently
+  // stay hidden behind a stale collapse flag from a session that already
+  // ended, instead of showing the row the user just asked to edit.
+  // setState-during-render (not an effect), matching EditCoGrid's own
+  // `everShown` idiom a few files over -- no extra render round-trip.
+  if (editingKeySet.size === 0 && isCoGridCollapsed) setIsCoGridCollapsed(false);
+
+  const handleEditSave = (key: string, values: T) => {
+    const entry = recordByEditKey.get(key);
+    if (entry) onRowEditSave?.(entry.record, entry.index, values);
+    saveEditingRow(key, values);
   };
-
-  const toggleRowSelected = (key: string) => {
-    const next = new Set(selectedKeySet);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    updateSelection(next);
+  const handleEditCancel = (key: string) => {
+    const entry = recordByEditKey.get(key);
+    if (entry) onRowEditCancel?.(entry.record, entry.index);
+    cancelEditingRow(key);
   };
+  // Built from `cappedEditingKeys` (already truncated to `maxEditingRows`),
+  // never the raw `editingKeySet` directly -- this is the one, real
+  // enforcement point for that cap regardless of how the set grew (see
+  // `maxEditingRows`'s own doc for the controlled-prop bypass this guards
+  // against). Ordered by insertion into editingKeySet isn't guaranteed by
+  // Set iteration in a way callers should rely on, but EditCoGrid's own
+  // local `rows` map (keyed, not indexed) doesn't care about this array's
+  // order -- only which keys are currently present.
+  const editEntries = editable
+    ? cappedEditingKeys
+        .map(key => {
+          const entry = recordByEditKey.get(key);
+          return entry ? { key, record: entry.record, index: entry.index } : null;
+        })
+        .filter((e): e is { key: string; record: T; index: number } => e !== null)
+    : [];
 
-  // Scoped to the *current page* only, per the doc's own spec -- "some but
-  // not all of the current page selected" -- even though `selectedKeySet`
-  // itself holds keys from any page (selection persists across pages).
-  const currentPageKeys = useMemo(
-    () => (selectable ? paginatedData.map((record, i) => getSelectionKey(record, i)) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectable, paginatedData, rowKey, pageOffset]
-  );
-  const allOnPageSelected = selectable && currentPageKeys.length > 0 && currentPageKeys.every(k => selectedKeySet.has(k));
-  const someOnPageSelected = selectable && !allOnPageSelected && currentPageKeys.some(k => selectedKeySet.has(k));
-
-  const toggleSelectAllOnPage = () => {
-    const next = new Set(selectedKeySet);
-    if (allOnPageSelected) currentPageKeys.forEach(k => next.delete(k));
-    else currentPageKeys.forEach(k => next.add(k));
-    updateSelection(next);
-  };
-
-  // 3. Virtualization within current page view & adaptive height
   const totalItems = paginatedData.length;
-  // Fallback used both for virtualization math and as this component's own
-  // minimum visible height below. Necessary because containerHeight="auto"
-  // fills its parent via `flex: 1 1 0px` + `height: 100%` — CSS that only
-  // resolves to something nonzero when the immediate ancestor is itself a
-  // `display: flex; flex-direction: column` box with a definite height
-  // (e.g. a `<Splitter.Panel>`). A plain content wrapper like a bare
-  // `<TabStrip.Panel>` gives a flex-basis-0 child nothing to grow into, so
-  // without this floor the whole table silently collapses to zero height —
-  // correctly-rendered rows clipped inside an invisible 0px scroll box,
-  // rather than an error. The `minHeight` below only ever acts as a floor:
-  // inside an ancestor that DOES provide real flex height, flex-grow still
-  // expands past it exactly as before.
-  const AUTO_HEIGHT_FALLBACK_PX = 350;
-  const effectiveContainerHeight =
-    typeof containerHeight === 'number' ? containerHeight : observedHeight > 0 ? observedHeight : AUTO_HEIGHT_FALLBACK_PX;
 
-  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 2);
-  const visibleCount = Math.ceil(effectiveContainerHeight / itemHeight) + 4;
-  const endIndex = Math.min(totalItems, startIndex + visibleCount);
+  const { startIndex, endIndex, isAutoHeight, onScroll } = useTableVirtualization({
+    bodyRef,
+    itemHeight,
+    containerHeight,
+    observedHeight,
+    totalItems,
+    // Changing page, page size, sort, or the quick filter reorders/reslices
+    // the dataset the same way -- the virtualization window has to reset
+    // for all four, not just page changes, or a scroll offset left over
+    // from a differently-sized page/sort/filter result can render as an
+    // apparently empty table. `itemHeight` joins the list for a related but
+    // distinct reason (issue #339): it doesn't reorder anything, but a
+    // density change invalidates what the current scrollTop pixel offset
+    // even means against the new row height, so the same reset-to-top
+    // treatment applies.
+    resetKey: `${validCurrentPage}|${effectivePageSize}|${sortBy.map(d => `${d.key}:${d.direction}`).join(',')}|${quickFilterValue}|${itemHeight}`,
+  });
 
   const visibleRows = paginatedData.slice(startIndex, endIndex);
 
-  const handleSort = (key: string) => {
-    let newKey: string | null;
-    let newDirection: 'asc' | 'desc';
-    if (sortKey === key) {
-      if (sortDirection === 'asc') {
-        newKey = key;
-        newDirection = 'desc';
-      } else {
-        newKey = null;
-        newDirection = sortDirection;
-      }
-    } else {
-      newKey = key;
-      newDirection = 'asc';
-    }
-    if (!isSortControlled) {
-      setInternalSortKey(newKey);
-      setInternalSortDirection(newDirection);
-    }
-    onSortChange?.(newKey, newDirection);
-    aiBus.emit('datatable:sorted', { id, key: newKey, direction: newDirection });
+  // The OTHER direction of issue #371's own empty<->populated crossfade --
+  // reported directly: clicking "Load Data" from the empty view "just
+  // slams" the real grid into place, no transition at all. The empty
+  // state's own entrance animation (below, on the emptyState <tr> branch)
+  // only ever plays when ARRIVING at empty; nothing ever played when
+  // LEAVING it, since the empty <tr> and the real row set are two
+  // structurally different branches at the same tree position -- every
+  // newly-mounted row on the render that flips away from empty is a
+  // brand-new DOM node regardless, so the same kind of mount-only entrance
+  // applies per-row here too. Scoped to fire ONLY on that one transition
+  // (not on ordinary virtualized scroll, which also mounts fresh <tr>
+  // elements for newly-visible rows -- animating every one of those on
+  // scroll would be a real, different behavior nobody asked for, and a
+  // known anti-pattern for virtualized lists specifically: fast scrolling
+  // mounts/unmounts many rows in quick succession, and animating every one
+  // would be a constant, distracting flicker, not a nice touch).
+  //
+  // Two React constraints ruled out the two more "obvious" ways to derive
+  // this flag, confirmed directly rather than assumed:
+  // - Comparing against a plain ref read/written INLINE in the render body
+  //   (no effect) trips this repo's own react-hooks/refs lint rule --
+  //   confirmed by a real lint failure, not just the rule's own docs.
+  // - Calling a useState setter directly during render (the "adjust state
+  //   during render" pattern this file's OTHER derived-value comparisons
+  //   use) doesn't work for THIS case specifically: React discards that
+  //   render and immediately re-runs the component fresh with the new
+  //   state BEFORE anything commits, so a flag computed that way can
+  //   never actually reach the DOM for the one render it's meant to
+  //   describe -- fine for adjusting state used in FUTURE comparisons,
+  //   wrong for producing a value THIS render's own JSX needs to consume.
+  //
+  // The actual fix: compare inside useLayoutEffect (the textbook-correct,
+  // lint-clean place to read/write a ref), which fires synchronously
+  // after the DOM commit but before the browser paints -- so the
+  // resulting setState-triggered re-render (adding the animation) commits
+  // before the user ever sees the un-animated intermediate frame. Reset
+  // via a real completion signal (each row's own onAnimationEnd), not a
+  // guessed timeout -- this codebase's own standing e2e discipline
+  // ("wait for a real signal, never a fixed sleep," AGENTS.md) applies
+  // exactly as much to a one-shot mount animation as to a test.
+  const isShowingEmptyState = sortedData.length === 0 && !!emptyState;
+  const wasShowingEmptyStateRef = useRef(isShowingEmptyState);
+  const [justLeftEmptyState, setJustLeftEmptyState] = useState(false);
+  useLayoutEffect(() => {
+    const wasEmpty = wasShowingEmptyStateRef.current;
+    wasShowingEmptyStateRef.current = isShowingEmptyState;
+    if (wasEmpty && !isShowingEmptyState) setJustLeftEmptyState(true);
+  }, [isShowingEmptyState]);
+  // e.target === e.currentTarget guards against a real, not just
+  // theoretical, bubbling hazard -- caught by an external review, then
+  // verified against this component's own actual design before applying
+  // the fix: React's onAnimationEnd bubbles the same way the native DOM
+  // event does, and `render` (a column's cell content) is fully
+  // consumer-controlled -- nothing stops a consumer from putting their
+  // own animated content (a Spinner, a pulsing Badge, anything with a
+  // real CSS `animation`) inside a cell. Without this guard, THAT child's
+  // own animationend would bubble up to this row's handler and reset
+  // justLeftEmptyState prematurely, cutting the row's own entrance
+  // animation short the moment any nested animation anywhere in that row
+  // happened to finish first.
+  const handleRowEntranceAnimationEnd = (e: React.AnimationEvent<HTMLTableRowElement>) => {
+    if (e.target === e.currentTarget) setJustLeftEmptyState(false);
   };
-
-  // Raw scroll events can fire far faster than one per frame; setting
-  // scrollTop straight from each one re-runs the virtualization math (and
-  // rowSubtheme/resolveSubtheme for every visible row) that often too.
-  // Coalescing to one update per animation frame — keeping only the latest
-  // offset via the ref — cuts that to the rate the browser can actually
-  // paint at. (latestScrollTopRef/scrollRafRef are declared up with
-  // bodyRef, not here, so the page/sort-change reset effect above can
-  // cancel an in-flight frame — see that effect's comment.)
+  // Real-browser measurement (not assumed) confirms onAnimationEnd alone
+  // is both precise and safe for THIS animation specifically: all
+  // currently-visible rows' animations start and end within ~0.1ms of
+  // each other (a single React commit mounts them all in the same paint),
+  // so the first row's own completion clearing the flag for every row
+  // isn't a real, visible "abrupt cutoff" -- and reducedMotion collapsing
+  // the duration to 0s still fires a real animationend event (confirmed:
+  // a zero-duration CSS animation still dispatches start/end per spec).
+  // Still, an EXTERNAL Gemini review raised a fair, more general point:
+  // relying SOLELY on a DOM event has no bound if something entirely
+  // unrelated interrupts it (the row unmounting mid-animation because a
+  // sort/filter/page-size change lands inside that same ~200ms window,
+  // e.g.) -- a real, if narrow, way for justLeftEmptyState to get stuck
+  // true forever, which would then apply this entrance animation to
+  // every future virtualized-scroll-mounted row too. A generous, bounded
+  // backup timeout closes that gap without weakening the precise event-
+  // driven path above -- it only ever fires if onAnimationEnd genuinely
+  // never did, and is long enough (2s) to never race a real, even
+  // consumer-customized `--ai-transition-duration-normal`.
   useEffect(() => {
-    return () => {
-      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
-    };
-  }, []);
+    if (!justLeftEmptyState) return;
+    const timeoutId = setTimeout(() => setJustLeftEmptyState(false), 2000);
+    return () => clearTimeout(timeoutId);
+  }, [justLeftEmptyState]);
 
-  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    latestScrollTopRef.current = e.currentTarget.scrollTop;
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      setScrollTop(latestScrollTopRef.current);
-    });
+  // onEndReached (issue #365) -- fires once per distinct totalItems value,
+  // not on every render/scroll event while already past the threshold, so
+  // a consumer's own in-flight fetch isn't re-triggered repeatedly while
+  // it's still loading. Appending more rows changes totalItems, which
+  // re-arms this for the next crossing. Only meaningful in continuous-
+  // scroll mode (pagination={false}) -- totalItems is `paginatedData.length`,
+  // which in paginated mode is just the current PAGE's row count, so
+  // "near the end" there means "near the end of this page," not "running
+  // low on loaded data," and firing on that would be actively misleading.
+  //
+  // The bus event fires whenever the threshold is genuinely crossed,
+  // regardless of whether `onEndReached` itself was given -- matching
+  // every other datatable:* event (datatable:sorted/filtered/paginated all
+  // fire unconditionally, independent of whether the matching onSortChange/
+  // onQuickFilterChange/onPageChange prop exists). A real, found-via-e2e-
+  // testing bug on this feature's first pass: the emit call used to sit
+  // behind the same `!onEndReached` guard as the prop callback itself, so
+  // a bus-only listener (no onEndReached prop at all) never saw the event.
+  //
+  // Gemini-caught edge case, addressed: `totalItems` shrinking (a filter
+  // narrowing the result set, e.g.) and later growing back to the exact
+  // same count it was at when this last fired used to leave
+  // firedEndReachedForRef still pinned at that count, silently skipping
+  // the re-fire a genuinely-different pass through that same number
+  // deserves. Tracking the last-OBSERVED totalItems separately (regardless
+  // of whether it fired) and clearing firedEndReachedForRef on any
+  // decrease closes this: growing back to a previously-fired-for count
+  // after a real dip now correctly re-arms.
+  //
+  // Deliberately NOT keyed off `data`'s own array reference (the
+  // alternative fix for the narrower case this doesn't cover -- a
+  // same-length swap to an entirely different, unrelated dataset with no
+  // accompanying totalItems change at all) -- `data` is exactly the kind
+  // of prop a consumer very commonly passes as a fresh array literal or
+  // freshly-mapped/filtered array on every render (this exact class of
+  // instability already bit `quickFilterFields` earlier in this same
+  // file's own history), which would make this fire on nearly every
+  // render past the threshold instead of once, a substantially worse
+  // regression than the narrow case it would fix.
+  const firedEndReachedForRef = useRef<number | null>(null);
+  const lastObservedTotalItemsRef = useRef<number>(totalItems);
+  useEffect(() => {
+    if (totalItems < lastObservedTotalItemsRef.current) firedEndReachedForRef.current = null;
+    lastObservedTotalItemsRef.current = totalItems;
+
+    if (pagination || totalItems === 0) return;
+    if (endIndex < totalItems - endReachedThreshold) return;
+    if (firedEndReachedForRef.current === totalItems) return;
+    firedEndReachedForRef.current = totalItems;
+    onEndReached?.();
+    aiBus.emit('datatable:end_reached', { id, loadedCount: totalItems });
+  }, [pagination, totalItems, endIndex, endReachedThreshold, onEndReached, id]);
+
+  // Grid coordinate layout: column 0 is the selection checkbox/radio column
+  // when `selectable` and not `hideSelectionColumn`, otherwise column
+  // indices start directly at `visibleColumns` (a hidden column occupies no
+  // grid position, see `visibleColumns`'s own comment above); a trailing
+  // rowCommands actions column (if any) is always the LAST column. Row 0 is
+  // always the header row, rows 1..paginatedData.length are body rows
+  // (page-relative, matching `actualIndex + 1`).
+  const colOffset = selectable && !hideSelectionColumn ? 1 : 0;
+  // hasRowCommandsProp: does this table configuration provide rowCommands
+  // at all. hasRowCommands: is that trailing actions column actually
+  // showing right now -- also hideable via the same columnVisibility menu
+  // as any data column (reported directly: it wasn't previously, even
+  // though it occupies a real column and can be just as worth hiding).
+  // Every existing rendering/layout usage below already read the second
+  // name, so redefining it here (rather than introducing a third variable
+  // and touching every call site) is what actually makes hiding it work.
+  const hasRowCommandsProp = !!rowCommands && rowCommands.length > 0;
+  const hasRowCommands = hasRowCommandsProp && !hiddenColumnSet.has(ROW_COMMANDS_COLUMN_KEY);
+  const gridColumnCount = visibleColumns.length + colOffset + (hasRowCommands ? 1 : 0);
+  // Guard for the columnVisibility menu below (reported directly: nothing
+  // stopped hiding every single column, leaving a table with a header row
+  // and zero content). A pinned column always counts toward this total --
+  // it's never hideable in the first place -- so the guard only actually
+  // bites once every pinned column is already accounted for and a
+  // hideable one (or the rowCommands sentinel) is the last visible thing
+  // left. `totalVisibleColumnCount` intentionally counts the SAME set
+  // `visibleColumns`/`hasRowCommands` above already compute, just as a
+  // count instead of the columns themselves.
+  const totalVisibleColumnCount = visibleColumns.length + (hasRowCommands ? 1 : 0);
+  // Shared by the empty-state row and both virtualization spacer rows below
+  // -- every one of them spans the table's real, full column count.
+  const totalColSpan = gridColumnCount;
+  const tableRef = useRef<HTMLTableElement>(null);
+  // useTableKeyboardNav called BEFORE useRowSetCrossFade below --
+  // restoreFocus (issue #517's own focus-preservation piece) has to
+  // exist first to pass into it.
+  const { focusedRow, focusedCol, handleKeyDown, handleFocus, restoreFocus } = useTableKeyboardNav({
+    tableRef,
+    bodyRef,
+    columnCount: gridColumnCount,
+    pageRowCount: paginatedData.length,
+    itemHeight,
+    startIndex,
+    endIndex,
+  });
+  const isFocusedCell = (row: number, col: number) => focusedRow === row && focusedCol === col;
+
+  // Cross-fades the row set when density OR pagination changes
+  // (issues #499/#517) instead of snapping instantly -- see this
+  // hook's own comment for the full approach, including why a single
+  // combined key covers both triggers and why restoreFocus (from
+  // useTableKeyboardNav above) is only ever invoked when a page change
+  // genuinely stole focus out from under the user, never for a density
+  // change (which never remounts any row) or a page change the user
+  // triggered from outside the grid entirely.
+  useRowSetCrossFade(tableRef, `${effectiveDensity}|${validCurrentPage}|${effectivePageSize}`, restoreFocus);
+
+  const { getColumnWidth, isResizing, getAriaValues, startResize, handleResizeKeyDown } = useTableColumnResize({
+    columnWidths: controlledColumnWidths,
+    defaultColumnWidths,
+    onColumnWidthsChange,
+  });
+
+  // Column pin/freeze (issue #341). SELECTION_COLUMN_WIDTH_PX/
+  // rowCommandsColumnWidthPx are the exact same values the colgroup's own
+  // `<col>` widths already use ('2.75rem' / `${rowCommands!.length * 2.25 +
+  // 1}rem`), just pre-converted to px at this codebase's established 16px
+  // root-font assumption (the same one itemHeight's own default already
+  // makes) -- needed here because the selection/rowCommands columns
+  // auto-pin alongside a left/right-pinned data column (see Column.pinned's
+  // own doc) using a KNOWN width, with no need for the real DOM measurement
+  // useTableColumnPinning uses for actual data columns (whose width can
+  // come from several different sources -- see that hook's own comment).
+  const hasLeftPinnedColumn = visibleColumns.some(c => c.pinned === 'left');
+  const hasRightPinnedColumn = visibleColumns.some(c => c.pinned === 'right');
+  const SELECTION_COLUMN_WIDTH_PX = 44; // 2.75rem
+  const selectionColumnPinned = hasLeftPinnedColumn && selectable && !hideSelectionColumn;
+  const rowCommandsColumnWidthPx = hasRowCommands ? (rowCommands!.length * 2.25 + 1) * 16 : 0;
+  const rowCommandsColumnPinned = hasRightPinnedColumn && hasRowCommands;
+
+  // Explicit, self-computed redistribution -- reported directly:
+  // dragging a resizable column's handle made it "jump" by a large fixed
+  // amount before tracking the cursor at all. Root cause, confirmed via
+  // real measurement: this table is `table-layout: fixed` + `width:
+  // 100%`, and declared column widths don't generally sum to the table's
+  // actual rendered width -- the browser's own fixed-layout algorithm
+  // responds by proportionally stretching EVERY column to fill the gap
+  // (confirmed: every <th> measured at exactly its declared width times
+  // the same ratio, `observedBodyWidth / sum-of-declared-widths`).
+  // `startResize` (useTableColumnResize.ts) measures a column's CURRENT
+  // rendered width via getBoundingClientRect() as its drag basis, which
+  // IS this stretched value -- setting that as a new EXPLICIT declared
+  // width changes the sum, which changes the stretch ratio needed to
+  // re-fill the container, so the browser re-stretches AGAIN on the very
+  // next layout, including the column just pinned to a value that was
+  // supposed to represent "no visible change yet." Confirmed directly:
+  // mousedown alone (zero cursor movement) jumped a 274.6px column to
+  // 322.4px.
+  //
+  // The fix: do the SAME "fill the container" redistribution ourselves,
+  // in JS, so the declared widths handed to the browser already sum to
+  // exactly the table's real available width. There's no gap left for
+  // table-layout:fixed's own algorithm to fill, so it never activates --
+  // and startResize's own "measure the current rendered width" basis
+  // becomes correct, since what's rendered now IS this computation's own
+  // output, with no browser-injected surprise stacked on top of it.
+  //
+  // The checkbox/rowCommands columns are deliberately excluded from this
+  // redistribution -- they stay fixed at their own known-constant widths
+  // (SELECTION_COLUMN_WIDTH_PX/rowCommandsColumnWidthPx), which is also
+  // what useTableColumnPinning's own leadingOffsetPx/trailingOffsetPx
+  // above already assumes as constants. Scaling them too would mean
+  // those two values silently stop matching the columns' real rendered
+  // widths, breaking a pinned data column's sticky offset. Only the data
+  // columns (displayColumns) absorb the redistribution.
+  const dataColumnsAvailableWidth = Math.max(
+    0,
+    observedBodyWidth -
+      (selectable && !hideSelectionColumn ? SELECTION_COLUMN_WIDTH_PX : 0) -
+      (hasRowCommands ? rowCommandsColumnWidthPx : 0)
+  );
+  // Fixed vs auto, refining the fix above per direct feedback: a column
+  // with an explicit width (declared, or a committed resize override) is
+  // FIXED -- it renders at exactly that value, full stop, never touched
+  // by anything except a direct drag on itself. A column with NEITHER a
+  // declared width NOR an override is AUTO -- `flex-grow: 1` semantics,
+  // splitting whatever's left over EQUALLY among however many auto
+  // columns currently exist (not weighted by anything, since an auto
+  // column has no "natural" size to weight by), each still floored at
+  // its own minWidth via `redistributeEquallyWithFloors` below.
+  //
+  // "Once the user touches any column, the layout locks in" -- the first
+  // real resize interaction (drag or keyboard) converts EVERY currently-
+  // auto column into a fixed one, by committing its current computed
+  // width as a real override at the same time (see the lock-in snapshot
+  // built and passed into startResize/handleResizeKeyDown at their own
+  // call sites below). Every later resize has nothing left to lock in --
+  // every column already has a real committed width by then -- so this
+  // is naturally a no-op after the first touch, which is exactly the
+  // intended "auto-size until you touch it, respect your own layout
+  // once you do" behavior.
+  const isAutoColumn = (col: Column<T>): boolean => getColumnWidth(col) === undefined;
+  const resizingColumn = displayColumns.find(c => isResizing(c.key));
+  // Floored only by the resizing column's own minWidth -- deliberately NO
+  // ceiling from siblings or the container here. A first version of this
+  // fix capped it against "how much every other column could give up,"
+  // reasoning that mirrored the min-width floor below -- but that
+  // reasoning only holds when something else is actually SHRINKING to
+  // compensate. A FIXED sibling never shrinks (that's what fixed means),
+  // so when there's no other AUTO column left to absorb the difference,
+  // that cap collapsed to "no room to grow at all," breaking the very
+  // drag it was supposed to protect (confirmed directly: growing the
+  // table's only auto column produced a hard 0px of movement). Letting
+  // this column grow freely and computing the TABLE's own width from the
+  // real total below (which can legitimately exceed the container) is
+  // the correct fix -- the floor protection for auto SIBLINGS still
+  // lives entirely in redistributeEquallyWithFloors below, unaffected.
+  const resizingColumnWidth = resizingColumn
+    ? Math.max(getColumnMinWidth(resizingColumn), getColumnWidth(resizingColumn) as number)
+    : 0;
+  // A non-numeric FIXED width (a CSS string like '12rem') renders exactly
+  // as-is (a plain style value, unaffected by any of this) but can't be
+  // summed in px the way computing "how much room auto columns have
+  // left" needs -- 150 is a plain, documented fallback estimate for that
+  // rare case, affecting only that budget, never the fixed column's own
+  // real rendered size.
+  const resolveFixedColumnWidthPx = (col: Column<T>): number => {
+    const w = getColumnWidth(col);
+    return typeof w === 'number' ? w : 150;
+  };
+  const otherColumns = displayColumns.filter(c => c !== resizingColumn);
+  const fixedOtherColumns = otherColumns.filter(c => !isAutoColumn(c));
+  const autoOtherColumns = otherColumns.filter(c => isAutoColumn(c));
+  const fixedOtherColumnsTotal = fixedOtherColumns.reduce((sum, c) => sum + resolveFixedColumnWidthPx(c), 0);
+  const availableForAutoColumns = Math.max(0, dataColumnsAvailableWidth - fixedOtherColumnsTotal - resizingColumnWidth);
+  // The standard flex-shrink/grow-with-a-floor algorithm (the same shape
+  // CSS flexbox's own min-width resolution uses), specialized to an EQUAL
+  // share per column rather than a weighted one -- an auto column has no
+  // declared width to weight by, so "equal" is the only well-defined
+  // default (matching `flex-grow: 1` on every flex item alike). Give
+  // every still-flexible column an equal share of what's left; any column
+  // whose share would fall below its own minWidth gets pinned there
+  // instead, removed from the flexible pool, and the remaining space
+  // redistributes again among what's still flexible -- repeated until
+  // nothing more needs pinning (or everything is pinned). Bounded at
+  // `columns.length + 1` passes -- each pass pins at least one more
+  // column or the loop already exited, so it can never iterate more
+  // times than there are columns to pin.
+  const redistributeEquallyWithFloors = (columns: Column<T>[], availableWidth: number): Map<string, number> => {
+    const result = new Map<string, number>();
+    // Before the very first real useAdaptiveSize measurement,
+    // observedBodyWidth (and therefore availableWidth, derived from it)
+    // is legitimately 0 -- without this guard, every column's equal
+    // share of "0" would fall below its own minWidth immediately,
+    // pinning everything to its floor for one frame and then visibly
+    // snapping to a real size the instant the real measurement lands.
+    // A plain equal split of the (not-yet-real) available width is a
+    // reasonable placeholder for that one frame instead.
+    if (observedBodyWidth <= 0) {
+      const equalShare = columns.length > 0 ? Math.max(0, availableWidth) / columns.length : 0;
+      for (const c of columns) result.set(c.key, equalShare);
+      return result;
+    }
+    let flexible = columns;
+    let remaining = availableWidth;
+    for (let pass = 0; pass <= columns.length && flexible.length > 0; pass++) {
+      const equalShare = flexible.length > 0 ? Math.max(0, remaining) / flexible.length : 0;
+      const stillFlexible: Column<T>[] = [];
+      let pinnedAny = false;
+      for (const c of flexible) {
+        const min = getColumnMinWidth(c);
+        if (equalShare < min) {
+          result.set(c.key, min);
+          remaining -= min;
+          pinnedAny = true;
+        } else {
+          stillFlexible.push(c);
+        }
+      }
+      flexible = stillFlexible;
+      if (!pinnedAny) {
+        for (const c of flexible) result.set(c.key, equalShare);
+        break;
+      }
+    }
+    return result;
+  };
+  const autoOtherColumnsWidths = redistributeEquallyWithFloors(autoOtherColumns, availableForAutoColumns);
+  const getRedistributedColumnWidth = (col: Column<T>): number => {
+    if (resizingColumn && col.key === resizingColumn.key) return resizingColumnWidth;
+    if (isAutoColumn(col)) return autoOtherColumnsWidths.get(col.key) ?? getColumnMinWidth(col);
+    return resolveFixedColumnWidthPx(col);
+  };
+  // The table's own real width is always just the exact sum of its
+  // columns' own real widths -- no separate '100%' vs. exact-px branch
+  // needed. This single formula already produces the right number in
+  // every case: with at least one auto column and no active drag, the
+  // auto column(s) fill precisely up to the container by construction
+  // (redistributeEquallyWithFloors's whole job), so the sum equals the
+  // container's own width already. With zero auto columns and nothing
+  // dragging, the sum is just the fixed columns' own total, legitimately
+  // narrower than the container (real unused space, not re-stretched to
+  // fill it -- the whole point of the fix above). Mid-drag, the sum can
+  // legitimately exceed the container (the resizing column's own width
+  // is deliberately uncapped by it, see that computation's own comment)
+  // -- the table simply grows to accommodate, the same way a flex
+  // container genuinely widens instead of arbitrarily capping a flex
+  // item's own explicit size at its parent's current edge.
+  const allColumnsTotalWidthPx =
+    (selectable && !hideSelectionColumn ? SELECTION_COLUMN_WIDTH_PX : 0) +
+    displayColumns.reduce((sum, c) => sum + getRedistributedColumnWidth(c), 0) +
+    (hasRowCommands ? rowCommandsColumnWidthPx : 0);
+  const tableWidthStyle = `${allColumnsTotalWidthPx}px`;
+  // The lock-in snapshot -- every column that's still auto, at its
+  // current computed width, merged into the SAME commit as the column
+  // actually being resized once the drag/keypress ends (see
+  // startResize's own call site below). Real bug caught by testing this
+  // for real, not just reasoning through it: an EARLIER version computed
+  // this snapshot EAGERLY, once, at the exact moment the resize interaction
+  // STARTS (mousedown), and handed that static object to startResize. That
+  // captures every auto column's width BEFORE the drag has moved at all --
+  // by the time the drag actually ENDS (mouseup, possibly many renders and
+  // pointermove ticks later, with every OTHER auto column having
+  // dynamically shrunk/grown along the way to track the live drag), the
+  // snapshot was locking in a STALE, pre-drag value instead of whatever
+  // the live redistribution had actually settled on by release. Confirmed
+  // directly: dragging a fixed sibling +100px, which should have shrunk
+  // the one auto column by the same amount, left it visibly unchanged
+  // after release -- the commit had silently re-applied its own
+  // pre-drag width right on top of the live-redistributed one.
+  //
+  // The fix: `latestAutoColumnWidthsRef` is written on EVERY render (via
+  // the layout effect below, the same "no dependency array, runs on
+  // every commit" pattern useTableColumnPinning already uses for its own
+  // real-time DOM measurement), so it always holds the CURRENT
+  // redistribution, however many renders have happened since the drag
+  // started. `getLockInWidths` closes over that ref and is handed to
+  // startResize/handleResizeKeyDown once, at interaction-start time, but
+  // its own body only ever reads `.current` -- calling it LATE, at
+  // actual commit time (useTableColumnResize.ts's own handleUp), is what
+  // makes it correct: the function's identity doesn't need to be fresh,
+  // only what it reads when it actually runs.
+  const latestAutoColumnWidthsRef = useRef<Record<string, number>>({});
+  useLayoutEffect(() => {
+    const snapshot: Record<string, number> = {};
+    // Before the very first real useAdaptiveSize measurement,
+    // getRedistributedColumnWidth's own equal-split fallback for an auto
+    // column is a placeholder guess (see redistributeEquallyWithFloors's
+    // own comment), not a real size -- locking THAT in as a permanent
+    // override would freeze every still-auto column at a meaningless
+    // value the instant a real measurement lands. Leave the snapshot
+    // empty in that case; a resize interaction genuinely can't have
+    // started before the table has ever laid out in a real browser
+    // (jsdom, with no real layout engine, is the one environment where
+    // this guard is what keeps a test's own resize call from committing
+    // a bogus 0 alongside the column it actually meant to resize).
+    if (observedBodyWidth > 0) {
+      for (const col of displayColumns) {
+        if (isAutoColumn(col)) snapshot[col.key] = getRedistributedColumnWidth(col);
+      }
+    }
+    latestAutoColumnWidthsRef.current = snapshot;
+  });
+  const getLockInWidths = (excludeKey: string): Record<string, number> => {
+    const { [excludeKey]: _excluded, ...rest } = latestAutoColumnWidthsRef.current;
+    return rest;
   };
 
-  const isAutoHeight = containerHeight === 'auto';
+  const { registerHeaderCellRef, offsets: pinnedOffsets } = useTableColumnPinning(
+    displayColumns,
+    selectionColumnPinned ? SELECTION_COLUMN_WIDTH_PX : 0,
+    rowCommandsColumnPinned ? rowCommandsColumnWidthPx : 0
+  );
+
+  /**
+   * Sticky positioning + opaque background + stacking for one pinned
+   * column's `<th>`/`<td>`, shared by header and body render loops below.
+   * The opaque background is the real reason this can't just be `position:
+   * sticky` alone: a `<tr>`'s shared background paints at the ROW's actual
+   * horizontal layout position, not wherever a sticky descendant visually
+   * ends up once "stuck" -- without an explicit background on the sticky
+   * cell itself, scrolled-under sibling cells would show through it. The
+   * header's own non-pinned `<th>`s rely on `<thead>`'s shared background
+   * instead (fine there, since `<thead>` only sticks vertically, not
+   * horizontally) -- a pinned `<th>` needs its own, for the identical
+   * reason a pinned `<td>` does. z-index: header-pinned > header-plain (the
+   * `<thead>`'s own Z_INDEX.STICKY) > body-pinned > body-plain, so a pinned
+   * header cell wins the stacking fight against a scrolling body cell
+   * passing underneath it during a simultaneous vertical+horizontal scroll.
+   */
+  function getPinnedCellStyle(col: Column<T>, isHeader: boolean, rowBackground?: string): CSSProperties | undefined {
+    if (!col.pinned) return undefined;
+    const isLeft = col.pinned === 'left';
+    const offset = (isLeft ? pinnedOffsets.left : pinnedOffsets.right).get(col.key) ?? 0;
+    return {
+      position: 'sticky',
+      [isLeft ? 'left' : 'right']: `${offset}px`,
+      zIndex: isHeader ? Z_INDEX.STICKY + 1 : 1,
+      background: isHeader ? 'var(--ai-bg-container, #f9fafb)' : rowBackground,
+    };
+  }
+
+  // Shared resize-handle renderer for a resizable column's <th> -- a
+  // role="separator" per the W3C APG Window Splitter pattern (see
+  // useTableColumnResize.ts's own header comment), positioned absolutely
+  // against the <th>'s own `position: relative` (set below wherever this is
+  // rendered). Reads the header cell live via e.currentTarget.closest('th')
+  // rather than a persistent ref -- this renders inside two different <th>
+  // shapes (sortable-button and plain), so there's no single stable ref to
+  // reuse between them. Deliberately NOT part of the roving-tabindex/
+  // data-grid-* coordinate model (no data-grid-row/col, no isFocusedCell) --
+  // same documented scope limit as any other custom interactive content
+  // inside a cell (see useTableKeyboardNav's own header comment): it's a
+  // second focusable target inside the column's header cell, reachable via
+  // native Tab order, not folded into the single-composite-widget model the
+  // sort button/checkbox use.
+  const renderResizeHandle = (col: Column<T>) => {
+    if (!col.resizable) return null;
+    const aria = getAriaValues(col);
+    // Real regression, caught by this PR's own axe-core CI gate (accessibility.spec.ts):
+    // useTableColumnResize's getAriaValues falls back to the column's raw
+    // `column.width` prop, which is genuinely `undefined` for an auto column
+    // (see the fixed-vs-auto model above) until the user actually resizes it --
+    // that hook has no knowledge of DataTable's own redistribution. A
+    // role="separator" requires aria-valuenow whenever it has a real numeric
+    // value to report, and an auto column always does (getRedistributedColumnWidth
+    // computes it on every render, independent of any user interaction), so
+    // omitting it here was a real, not just theoretical, aria-required-attr
+    // violation the instant a resizable column had no declared width at all.
+    const ariaValueNow = aria.valueNow ?? Math.round(getRedistributedColumnWidth(col));
+    const onDown = (e: ReactMouseEvent<HTMLDivElement> | ReactPointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const headerCell = (e.currentTarget as HTMLElement).closest('th');
+      if (headerCell) startResize(col, headerCell, e.clientX, () => getLockInWidths(col.key));
+    };
+    return (
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={ariaValueNow}
+        aria-valuemin={aria.valueMin}
+        aria-valuemax={aria.valueMax}
+        aria-label={`Resize ${col.title} column`}
+        // Real signal for e2e tests to wait on before sending further
+        // mouse/pointer movement -- see AGENTS.md's "e2e: wait for a real
+        // signal, never a fixed sleep" section. `startResize`'s window-level
+        // pointermove/pointerup listeners attach in a useLayoutEffect keyed
+        // off `isDragging` (see useTableColumnResize.ts's own comment on
+        // why that has to be useLayoutEffect, not useEffect), which is
+        // synchronous with the React commit but NOT synchronous with
+        // whatever ack a real browser's input-injection protocol returns
+        // to a test driver -- confirmed as a real, reproducible flake under
+        // heavy parallel WebKit load (8 concurrent workers), not a logic
+        // bug: the drag would silently register zero effect because the
+        // very next synthetic mousemove could be dispatched before this
+        // attach actually lands. This attribute gives a test something
+        // concrete to poll for instead of guessing a delay.
+        data-resizing={isResizing(col.key) ? 'true' : undefined}
+        tabIndex={0}
+        className="ai-focus-ring"
+        onMouseDown={onDown}
+        onPointerDown={onDown}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => {
+          e.stopPropagation();
+          const headerCell = (e.currentTarget as HTMLElement).closest('th');
+          if (headerCell) handleResizeKeyDown(col, headerCell, e, () => getLockInWidths(col.key));
+        }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          // Reported directly: the previous 0.5rem hit-zone sat entirely
+          // INSIDE this column's own box (right: 0), so there was no
+          // "give" on the far side of the real visual boundary at all --
+          // genuinely narrow and hard to land a click on precisely. A
+          // wider zone (0.75rem), shifted HALF outside the column's own
+          // edge so it straddles the real boundary exactly evenly on both
+          // sides, same as most real resize-handle implementations.
+          // `right` must be exactly -(width / 2) for that -- a real,
+          // reported regression (found via direct pixel measurement, not
+          // just eyeballing it: the persistent indicator line rendered 2px
+          // off from the true border, looking like a second, "crooked"
+          // rule next to the real one) came from this being -0.25rem
+          // against a 0.75rem width, which is NOT half of it (0.375rem
+          // is). Since the inner indicator div below is flex-centered
+          // inside this same box, whatever this box's own true center is
+          // becomes the indicator's own center -- so an asymmetric offset
+          // here directly mis-centers the indicator against the border it
+          // exists to mark, not just the invisible hit-zone.
+          right: '-0.375rem',
+          bottom: 0,
+          width: '0.75rem',
+          cursor: 'col-resize',
+          touchAction: 'none',
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
+        {/* Reported directly: nothing distinguished a resizable column's
+            boundary from a non-resizable one until you already hovered
+            (or worse, dragged) it -- there was no way to tell which
+            columns even supported this without trial and error. A thin,
+            always-visible (if subtle) line at the real boundary, inside
+            the wider invisible hit-zone above, gives that signal for
+            free; it brightens to the same accent highlight the drag
+            state already used once a resize is actually in progress. */}
+        <div
+          aria-hidden="true"
+          style={{
+            width: '0.125rem',
+            height: '100%',
+            borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+            // Issue #402: accent, not primary, once actually resizing --
+            // same reasoning as Splitter's own drag-handle and
+            // FileUpload's dropzone: a momentary active-resize highlight,
+            // distinct from DataTable's own persistent row-selection
+            // color (which stays primary).
+            background: isResizing(col.key) ? 'var(--ai-color-accent, #8b5cf6)' : 'var(--ai-border, #e5e7eb)',
+          }}
+        />
+      </div>
+    );
+  };
 
   return (
     <div
@@ -544,16 +1860,324 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
         ...vars,
       }}
     >
-      {/* Bulk Action Bar — appears once at least one row is selected, across any page. */}
-      {selectable && selectedKeySet.size > 0 && (
-        <div style={{ borderBottom: '0.0625rem solid var(--ai-border, #e5e7eb)', flex: '0 0 auto' }}>
+      {/* Top Toolbar — a single, always-mounted (not toggled by any
+          runtime state as a WHOLE) bar combining search, bulk-selection
+          status/actions, density, CSV export, column visibility, and any
+          caller-supplied extra content. Its own presence is driven by the
+          static `quickFilter`/`densitySelector`/`csvExport`/
+          `columnVisibility`/`selectable`/`renderToolbarExtra` props, so
+          there's no whole-bar layout-jump concern to guard against -- only
+          the Center slot's bulk-action content (below) needs its own
+          narrower visibility trick, the same one this used to apply to a
+          whole separate second row. */}
+      {(quickFilter || densitySelector || csvExport || columnVisibility || selectable || renderToolbarExtra || showCoGridToggle) && (
+        <div style={{ padding: '0.625rem 1rem', borderBottom: '0.0625rem solid var(--ai-border, #e5e7eb)', flex: '0 0 auto' }}>
           <Toolbar>
-            <Toolbar.Left>
-              <span style={{ fontSize: '0.875rem', fontWeight: 'var(--ai-font-weight-semibold, 600)', color: 'var(--ai-text-primary, #111827)' }}>
-                {selectedKeySet.size} selected
-              </span>
-            </Toolbar.Left>
-            <Toolbar.Right>{renderBulkActions?.(Array.from(selectedKeySet))}</Toolbar.Right>
+            {quickFilter && (
+              <Toolbar.Left>
+                <input
+                  type="search"
+                  value={quickFilterValue}
+                  onChange={e => handleQuickFilterInputChange(e.target.value)}
+                  placeholder={strings.quickFilterPlaceholder}
+                  aria-label={strings.quickFilterPlaceholder}
+                  className="ai-focus-ring"
+                  style={{
+                    width: '100%',
+                    maxWidth: '20rem',
+                    boxSizing: 'border-box',
+                    padding: 'var(--ai-padding-xs, 0.375rem 0.625rem)',
+                    border: '0.0625rem solid var(--ai-border, #d1d5db)',
+                    borderRadius: 'var(--ai-radius-md, 0.375rem)',
+                    fontSize: '0.875rem',
+                    background: 'var(--ai-bg-surface, #ffffff)',
+                    color: 'var(--ai-text-primary, #111827)',
+                  }}
+                />
+              </Toolbar.Left>
+            )}
+            {selectable && (
+              <Toolbar.Center>
+                {/* Always mounted once `selectable` (not conditionally, on
+                    selectedKeySet.size > 0), toggling only `visibility` --
+                    a real, confirmed layout-jump found via direct
+                    feedback: mounting/unmounting this on the FIRST
+                    selection pushed the entire table down by its height,
+                    since `visibility: hidden` (unlike `display: none`)
+                    still reserves the element's own box in the layout,
+                    selecting row 1 (or clearing back to 0) never moves
+                    anything else. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    visibility: selectedKeySet.size > 0 ? 'visible' : 'hidden',
+                  }}
+                >
+                  <span style={{ fontSize: '0.875rem', fontWeight: 'var(--ai-font-weight-semibold, 600)', color: 'var(--ai-text-primary, #111827)' }}>
+                    {selectedKeySet.size} selected
+                  </span>
+                  {renderBulkActions?.(Array.from(selectedKeySet), { startEditingRows })}
+                </div>
+              </Toolbar.Center>
+            )}
+            {(densitySelector || csvExport || columnVisibility || renderToolbarExtra || showCoGridToggle) && (
+              <Toolbar.Right>
+                {/* One connected pill across every enabled toolbar-right
+                    control (density, Export CSV, Columns, and whatever
+                    renderToolbarExtra supplies), not a separate merged
+                    cluster per feature -- reported directly, from a real
+                    screenshot showing visible gaps between each cluster.
+                    UIGroup itself already tolerates any subset of these
+                    being absent (Children.toArray filters out a `false`
+                    from a disabled feature's `{flag && (...)}`), so this
+                    wraps unconditionally rather than needing its own
+                    enabled-feature branching. */}
+                <UIGroup>
+                {showCoGridToggle && (
+                  // Issue #545 section 5: collapsing hides the co-grid's
+                  // RENDERING only -- editingKeySet (and every draft's own
+                  // <Form> state underneath it) is untouched, so this never
+                  // exits edit mode. The count badge (issue #584: now
+                  // always visible, not just while collapsed) exists so
+                  // collapsing can never make in-progress edits look like
+                  // they've vanished -- the main grid's own per-row
+                  // quaternary indicator is the other half of that same
+                  // guarantee (DataTable.tsx's isRowEditing rendering,
+                  // unaffected by this toggle).
+                  //
+                  // aria-expanded/aria-controls, not aria-pressed (Gemini's
+                  // PR #571 review, confirmed against the WAI-ARIA APG):
+                  // this button discloses/hides an external region, it
+                  // doesn't represent its own persistent on/off state --
+                  // aria-pressed paired with an action-describing label that
+                  // changes ("Show editing"/"Hide editing") produces a
+                  // contradictory announcement ("Show editing, pressed").
+                  // The Disclosure pattern's aria-expanded is exactly this
+                  // shape and is idiomatic with a changing action label.
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-expanded={!isCoGridCollapsed}
+                    aria-controls={`${id}-edit-cogrid`}
+                    // Icon-only (issue #584, direct feedback: "more
+                    // compact") -- the accessible name moves entirely onto
+                    // aria-label, since Button has no visible text content
+                    // left to derive it from. A disclosure chevron
+                    // (collapsed points at the content, expanded points
+                    // down at it -- the same closed/open triangle
+                    // convention this file's own pagination arrows use a
+                    // few hundred lines down) plus an always-mounted,
+                    // always-visible count badge. Making the badge
+                    // permanent (rather than #584's earlier fix, which kept
+                    // it always MOUNTED but toggled its `visibility`) is
+                    // simpler still and removes the original bug's
+                    // precondition entirely: nothing about this button's
+                    // content differs between the two states anymore, so
+                    // there's nothing left that COULD make it taller/wider
+                    // in one state than the other, regardless of what
+                    // UIGroup's own align-items:stretch does with it.
+                    aria-label={isCoGridCollapsed ? strings.showEditingLabel : strings.hideEditingLabel}
+                    // title added in #592, retroactively -- Gemini's review
+                    // of that PR pointed out EditCoGrid's own icon-only
+                    // buttons (Reset/Save/Cancel) already pair aria-label
+                    // with title, and this button should have matched that
+                    // precedent from the start.
+                    title={isCoGridCollapsed ? strings.showEditingLabel : strings.hideEditingLabel}
+                    onClick={() => setIsCoGridCollapsed(prev => !prev)}
+                    // Real SVG chevron (lucide-react), not the plain
+                    // Unicode ▶/▼ this used originally -- switched for
+                    // visual consistency with the rest of the toolbar's
+                    // now-real icons (density, Export CSV, Columns), added
+                    // alongside them in #591.
+                    icon={isCoGridCollapsed ? <ChevronRight size="1em" /> : <ChevronDown size="1em" />}
+                    trailingIcon={<Badge size="sm">{editingKeySet.size}</Badge>}
+                  />
+                )}
+                {densitySelector && (
+                  // Composes the shared <ToggleGroup> rather than hand-
+                  // rolling 3 individual Buttons (the previous version of
+                  // this code) -- DataTable should compose other toolkit
+                  // components, not reimplement a second "connected
+                  // single-select strip" that only approximately matches
+                  // the real one. This also gets the interior choice-
+                  // separator treatment (between Compact|Normal|Spacious)
+                  // for free from ToggleGroup's own implementation,
+                  // instead of DataTable needing its own copy of that fix.
+                  //
+                  // No wrapping div/role="group" around it -- ToggleGroup
+                  // itself now consults the ambient UIGroupContext (see
+                  // its own component-level comment) to square only its
+                  // OWN outermost edges against this outer UIGroup, the
+                  // same way Button/Input already do, while keeping its
+                  // own internal per-option corner logic independent. A
+                  // real DOM wrapper here would still only be able to
+                  // give ITSELF (not the real options inside it) the
+                  // outer squaring -- confirmed the hard way for the
+                  // three individual buttons this replaces, before
+                  // ToggleGroup grew Context support.
+                  <ToggleGroup
+                    size="sm"
+                    aria-label={strings.densityLabel}
+                    // Issue #591 (revised after direct feedback -- plain
+                    // text/emoji glyphs read as placeholder-ish, not real
+                    // icons): real SVG icons from lucide-react, matching
+                    // the co-grid toggle's own #589 icon-only treatment.
+                    // ToggleGroupOption has no separate aria-label field
+                    // per option (its accessible name IS whatever's in
+                    // `label`, by design), so the existing accessible
+                    // strings move into a <VisuallyHidden> label instead
+                    // of disappearing. No aria-hidden wrapper needed on
+                    // the icon itself here (unlike the earlier S/M/L-letter
+                    // version) -- every lucide icon already defaults to
+                    // aria-hidden="true" on its own <svg> as long as
+                    // nothing aria-*/title/role is passed directly to it.
+                    // A purely pictographic icon also sidesteps the WCAG
+                    // SC 2.5.3 (Label in Name) issue Gemini's review of
+                    // #592 caught in the letter-based version -- there's
+                    // no visible TEXT label here for the accessible name
+                    // to have to contain.
+                    options={(['compact', 'normal', 'spacious'] as const).map(d => {
+                      const DensityIcon = DENSITY_OPTION_ICON[d];
+                      return {
+                        value: d,
+                        icon: <DensityIcon size="1em" />,
+                        label: <VisuallyHidden>{strings.densityOptionLabel(d)}</VisuallyHidden>,
+                      };
+                    })}
+                    value={liveDensity}
+                    onChange={next => handleDensityChange(next as TableDensity)}
+                  />
+                )}
+                {csvExport && (
+                  // title alongside aria-label, matching EditCoGrid's own
+                  // established icon-only-button pattern (its Reset/Save/
+                  // Cancel buttons) -- Gemini's review of #592 correctly
+                  // flagged that a sighted mouse user has no native hover
+                  // explanation for what an icon-only button does without
+                  // one.
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={strings.exportCsvLabel}
+                    title={strings.exportCsvLabel}
+                    onClick={handleCsvExport}
+                    icon={<Download size="1em" />}
+                  />
+                )}
+                {columnVisibility && (
+                  // A bespoke Base UI Menu built from the parts (not the
+                  // toolkit's own <DropdownMenu>): <DropdownMenu>'s
+                  // MenuItemData is action-item-only (a click always closes
+                  // the menu), but toggling several columns in sequence needs
+                  // the menu to STAY open across each click. Base UI's
+                  // CheckboxItem is built for exactly that (closeOnClick is
+                  // off by default), and the shared component doesn't expose
+                  // it. The popup and item looks are the shared ones.
+                  <OverlayCSP>
+                  <Menu.Root>
+                    <Menu.Trigger render={<Button type="button" size="sm" variant="outline" aria-label={strings.columnsButtonLabel} title={strings.columnsButtonLabel} icon={<Columns3 size="1em" />} />} />
+                    <Menu.Portal container={targetDocument?.body}>
+                      <Menu.Positioner align="end" sideOffset={4} collisionAvoidance={DROPDOWN_COLLISION} style={{ zIndex: Z_INDEX.DROPDOWN }}>
+                      <Menu.Popup
+                        className="ai-focus-ring"
+                        style={{
+                          ...menuPopupStyle('--ai-shadow-md'),
+                          borderRadius: 'var(--ai-radius-md, 0.375rem)',
+                        }}
+                      >
+                        {/*
+                          Pinned columns are excluded entirely, not just
+                          shown-and-disabled -- reported directly: pinning
+                          exists specifically to keep a column always
+                          visible while the rest scrolls underneath it, so
+                          offering it in a hide/show list at all contradicts
+                          why it's pinned. This is also what fixes a second,
+                          related report: a hidden-then-reshown column used
+                          to reappear at a different position than this
+                          menu's own listed order implied, because a pinned
+                          column's real render position (grouped to the
+                          left/right edge, see displayColumns above) never
+                          matched its position in this menu's un-grouped
+                          list. With pinned columns gone from the list
+                          entirely, every remaining entry is unpinned, and
+                          an unpinned column's relative order here always
+                          matches its real rendered order (both are a plain
+                          filter() over the same `columns` array, which
+                          preserves relative order) -- nothing left to
+                          diverge.
+                        */}
+                        {columns.filter(col => !col.pinned).map(col => {
+                          const isChecked = !hiddenColumnSet.has(col.key);
+                          // Disabled, not just refused on click -- reported
+                          // directly: nothing stopped hiding every column,
+                          // leaving a table with a header row and no
+                          // visible content. Only ever true for the one
+                          // remaining checked item once totalVisibleColumnCount
+                          // has dropped to 1 (a pinned column, if any,
+                          // already keeps that count above 1 on its own,
+                          // without ever appearing in this list).
+                          const isDisabled = isChecked && totalVisibleColumnCount <= 1;
+                          return (
+                            <Menu.CheckboxItem
+                              key={col.key}
+                              checked={isChecked}
+                              disabled={isDisabled}
+                              onCheckedChange={() => toggleColumnVisibility(col.key)}
+                              className="ai-menu-item"
+                              style={menuItemStyle(isDisabled, '--ai-dropdownmenu-item-padding')}
+                            >
+                              {/* Fixed-width reserved space so the label
+                                  doesn't visually shift left/right as items
+                                  toggle in and out of the checked state. */}
+                              <span aria-hidden="true" style={{ width: '1rem', display: 'inline-flex', justifyContent: 'center' }}>
+                                <Menu.CheckboxItemIndicator>✓</Menu.CheckboxItemIndicator>
+                              </span>
+                              {col.title}
+                            </Menu.CheckboxItem>
+                          );
+                        })}
+                        {/*
+                          rowCommands' own trailing actions column --
+                          reported directly: it wasn't previously offered
+                          here at all, even though it occupies a real
+                          column (and can be just as worth hiding as any
+                          data column). Same isDisabled guard as every
+                          other item -- it's ordinary content for this
+                          purpose, not special-cased.
+                        */}
+                        {hasRowCommandsProp && (() => {
+                          const isChecked = !hiddenColumnSet.has(ROW_COMMANDS_COLUMN_KEY);
+                          const isDisabled = isChecked && totalVisibleColumnCount <= 1;
+                          return (
+                            <Menu.CheckboxItem
+                              key={ROW_COMMANDS_COLUMN_KEY}
+                              checked={isChecked}
+                              disabled={isDisabled}
+                              onCheckedChange={() => toggleColumnVisibility(ROW_COMMANDS_COLUMN_KEY)}
+                              className="ai-menu-item"
+                              style={menuItemStyle(isDisabled, '--ai-dropdownmenu-item-padding')}
+                            >
+                              <span aria-hidden="true" style={{ width: '1rem', display: 'inline-flex', justifyContent: 'center' }}>
+                                <Menu.CheckboxItemIndicator>✓</Menu.CheckboxItemIndicator>
+                              </span>
+                              {strings.actionsColumnLabel}
+                            </Menu.CheckboxItem>
+                          );
+                        })()}
+                      </Menu.Popup>
+                      </Menu.Positioner>
+                    </Menu.Portal>
+                  </Menu.Root>
+                  </OverlayCSP>
+                )}
+                {renderToolbarExtra?.()}
+                </UIGroup>
+              </Toolbar.Right>
+            )}
           </Toolbar>
         </div>
       )}
@@ -607,8 +2231,57 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
         }}
       >
         <table
+          ref={tableRef}
+          role="grid"
+          // Reflects the FULL dataset (not just the current virtualization
+          // window, and per the W3C APG's own guidance for aria-rowcount --
+          // https://www.w3.org/WAI/ARIA/apg/patterns/grid/ -- explicitly
+          // including pagination as a case where not all rows are in the
+          // DOM), +1 for the header row. aria-colcount reflects the real
+          // rendered column count -- every VISIBLE column (see
+          // `visibleColumns`'s own comment: a `columnVisibility`-hidden
+          // column occupies no grid position at all) is always present in
+          // the DOM, unlike rows, so aria-colindex per cell isn't needed
+          // (the spec only calls for it when the DOM column set is a
+          // subset of the full one).
+          aria-rowcount={1 + sortedData.length}
+          aria-colcount={gridColumnCount}
+          onKeyDown={e => {
+            // Space toggles the focused row's own selection -- the
+            // keyboard equivalent of a plain row click. Scoped to
+            // target.tagName === 'TD'/'TH' specifically (a plain cell
+            // itself has focus, not a nested widget) so this doesn't
+            // double-fire on a checkbox/radio (Space already natively
+            // activates a real <button role="checkbox">, which already
+            // calls toggleRowSelected via its own onCheckedChange) or a
+            // rowCommands action button (Space there should trigger THAT
+            // button, not select the row).
+            const target = e.target as HTMLElement;
+            if (
+              selectable &&
+              !disableRowClickSelection &&
+              e.key === ' ' &&
+              focusedRow > 0 &&
+              (target.tagName === 'TD' || target.tagName === 'TH')
+            ) {
+              const rowIndex = focusedRow - 1; // grid row 0 is the header
+              const record = paginatedData[rowIndex];
+              if (record) {
+                e.preventDefault();
+                toggleRowSelected(getSelectionKey(record, rowIndex), rowIndex);
+              }
+            }
+            handleKeyDown(e);
+          }}
+          onFocus={handleFocus}
           style={{
-            width: '100%',
+            // tableWidthStyle, not a bare '100%' -- see that computation's
+            // own comment above: once every column is fixed and nothing's
+            // being dragged, the table's real width is the exact sum of
+            // its own columns, which can legitimately be narrower than
+            // the container (real, deliberate unused space) rather than
+            // every fixed column being silently re-stretched to fill it.
+            width: tableWidthStyle,
             tableLayout: 'fixed',
             borderCollapse: 'collapse',
             textAlign: 'left',
@@ -616,10 +2289,17 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
           }}
         >
           <colgroup>
-            {selectable && <col style={{ width: '2.75rem' }} />}
-            {columns.map(col => (
-              <col key={col.key} style={{ width: col.width ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined }} />
+            {selectable && !hideSelectionColumn && <col style={{ width: `${SELECTION_COLUMN_WIDTH_PX}px` }} />}
+            {/* getRedistributedColumnWidth, not the raw getColumnWidth --
+                see that computation's own comment above for why: it
+                already accounts for filling the table's real available
+                width itself, so the browser's own table-layout:fixed
+                stretch never needs to (and can't silently disagree with
+                what startResize/getBoundingClientRect() will measure back). */}
+            {displayColumns.map(col => (
+              <col key={col.key} style={{ width: `${getRedistributedColumnWidth(col)}px` }} />
             ))}
+            {hasRowCommands && <col style={{ width: `${rowCommandsColumnWidthPx}px` }} />}
           </colgroup>
 
           {/* Header */}
@@ -632,182 +2312,853 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
               borderBottom: '0.0625rem solid var(--ai-border, #e5e7eb)',
             }}
           >
-            <tr>
-              {selectable && (
-                <th style={{ padding: 'var(--ai-table-header-padding, var(--ai-padding-md, 0.75rem 1rem))', width: '2.75rem' }}>
-                  <CheckboxPrimitive.Root
-                    checked={allOnPageSelected ? true : someOnPageSelected ? 'indeterminate' : false}
-                    onCheckedChange={toggleSelectAllOnPage}
-                    aria-label="Select all rows on this page"
-                    className="ai-focus-ring"
-                    style={{
-                      all: 'unset',
-                      width: '1.125rem',
-                      height: '1.125rem',
-                      borderRadius: 'var(--ai-radius-sm, 0.25rem)',
-                      border: `0.0625rem solid ${allOnPageSelected || someOnPageSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
-                      background: allOnPageSelected || someOnPageSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-surface, #ffffff)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    <CheckboxPrimitive.Indicator
-                      style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex' }}
+            <tr aria-rowindex={1}>
+              {selectable && !hideSelectionColumn && (
+                <th
+                  style={{
+                    // Reported directly: this column rendered noticeably
+                    // wider than a bare checkbox needs. Reusing the same
+                    // 1rem horizontal padding every text column uses left
+                    // only ~12px of content box inside the declared 44px
+                    // column for an 18px checkbox (--ai-togglecontrol-
+                    // checkbox-size) -- confirmed via a real computed-style
+                    // check that the browser was expanding the column to
+                    // ~55px to avoid clipping it. A checkbox needs no text
+                    // breathing room the way every other header does; 0.5rem
+                    // each side leaves a comfortable ~28px content box for
+                    // an 18px checkbox, well inside the declared 44px.
+                    padding: `${DENSITY_SELECTION_HEADER_PADDING_V_PX[effectiveDensity]}px 0.5rem`,
+                    width: `${SELECTION_COLUMN_WIDTH_PX}px`,
+                    ...(selectionColumnPinned
+                      ? { position: 'sticky', left: 0, zIndex: Z_INDEX.STICKY + 1, background: 'var(--ai-bg-container, #f9fafb)' }
+                      : {}),
+                  }}
+                  // "Select all" makes no sense for a single-choice model --
+                  // in 'single' mode this <th> renders no widget at all, so
+                  // (mirroring the sortable/non-sortable data-column pattern
+                  // just below) IT carries the grid-nav attributes directly
+                  // instead of a nonexistent child widget.
+                  {...(selectionMode === 'single'
+                    ? { 'data-grid-row': 0, 'data-grid-col': 0, tabIndex: isFocusedCell(0, 0) ? 0 : -1 }
+                    : {})}
+                  className={selectionMode === 'single' ? 'ai-focus-ring' : undefined}
+                >
+                  {/* Real Gemini-caught defect (PR #333): this <th> is
+                      genuinely empty in 'single' mode (no "select all"
+                      control makes sense for one choice), but the grid-nav
+                      attributes above still make it focusable -- an empty,
+                      unlabeled focusable cell announced nothing useful to a
+                      screen reader. A visually-hidden label gives it a real
+                      accessible name without adding visible content next to
+                      every other column's own real header text. */}
+                  {selectionMode === 'single' && <VisuallyHidden>Row selection</VisuallyHidden>}
+                  {selectionMode !== 'single' && (
+                    <BaseCheckbox.Root
+                      checked={allOnPageSelected}
+                      indeterminate={!allOnPageSelected && someOnPageSelected}
+                      onCheckedChange={() => toggleSelectAllOnPage()}
+                      aria-label="Select all rows on this page"
+                      className="ai-focus-ring"
+                      data-grid-row={0}
+                      data-grid-col={0}
+                      tabIndex={isFocusedCell(0, 0) ? 0 : -1}
+                      style={{
+                        all: 'unset',
+                        width: '1.125rem',
+                        height: '1.125rem',
+                        borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+                        border: `0.0625rem solid ${allOnPageSelected || someOnPageSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
+                        background: allOnPageSelected || someOnPageSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-surface, #ffffff)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxSizing: 'border-box',
+                      }}
                     >
-                      {allOnPageSelected ? '✓' : '−'}
-                    </CheckboxPrimitive.Indicator>
-                  </CheckboxPrimitive.Root>
+                      <BaseCheckbox.Indicator
+                        style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex' }}
+                      >
+                        {allOnPageSelected ? '✓' : '−'}
+                      </BaseCheckbox.Indicator>
+                    </BaseCheckbox.Root>
+                  )}
                 </th>
               )}
-              {columns.map(col => {
+              {displayColumns.map((col, colIndex) => {
                 const isSortable = col.sortable === true;
+                const gridCol = colOffset + colIndex;
+                const sortDescriptor = isSortable ? getSortDescriptor(col.key) : undefined;
+                // 1-indexed priority within the current multi-column sort
+                // -- only shown once a SECOND column is actually part of
+                // the sort (sortBy.length > 1); a lone sorted column looks
+                // exactly like a single-sort table always did, no badge.
+                const sortPriority = sortDescriptor && sortBy.length > 1 ? sortBy.indexOf(sortDescriptor) + 1 : null;
+                const pinnedStyle = getPinnedCellStyle(col, true);
                 return (
                   <th
                     key={col.key}
-                    onClick={() => isSortable && handleSort(col.key)}
-                    onKeyDown={e => {
-                      if (!isSortable) return;
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSort(col.key);
-                      }
-                    }}
-                    tabIndex={isSortable ? 0 : undefined}
-                    className={isSortable ? 'ai-focus-ring' : undefined}
+                    ref={col.pinned ? registerHeaderCellRef(col.key) : undefined}
+                    // Not itself part of the roving-tabindex/data-grid-*
+                    // scheme when sortable -- the <button> below is the
+                    // real focus target for that case (the APG's own
+                    // "cell contains one widget" pattern), so this <th>
+                    // only carries those attributes for a non-sortable
+                    // column, where it's the cell target itself instead.
+                    {...(!isSortable
+                      ? { 'data-grid-row': 0, 'data-grid-col': gridCol, tabIndex: isFocusedCell(0, gridCol) ? 0 : -1 }
+                      : {})}
+                    className={!isSortable ? 'ai-focus-ring' : undefined}
                     aria-sort={
                       isSortable
-                        ? sortKey === col.key
-                          ? sortDirection === 'asc' ? 'ascending' : 'descending'
+                        ? sortDescriptor
+                          ? sortDescriptor.direction === 'asc' ? 'ascending' : 'descending'
                           : 'none'
                         : undefined
                     }
                     style={{
-                      padding: 'var(--ai-table-header-padding, var(--ai-padding-md, 0.75rem 1rem))',
+                      // Padding moves onto the <button> below for a sortable
+                      // column (padding: 0 here) -- see that element's own
+                      // comment on why.
+                      padding: isSortable
+                        ? 0
+                        : 'var(--ai-table-header-padding, var(--ai-padding-md, 0.75rem 1rem))',
                       fontWeight: 'var(--ai-font-weight-semibold, 600)',
                       color: 'var(--ai-text-primary, #111827)',
-                      cursor: isSortable ? 'pointer' : 'default',
-                      userSelect: 'none',
-                      width: col.width,
+                      cursor: isSortable ? undefined : 'default',
+                      // A percentage height on the button below only
+                      // resolves against a <th> with an explicit height of
+                      // its own, not just whatever height the table's row
+                      // algorithm happens to stretch it to -- without this,
+                      // the button could stay at its own auto content
+                      // height inside a <th> a taller sibling column
+                      // stretched, leaving unclickable dead space.
+                      height: isSortable ? '100%' : undefined,
+                      width: `${getRedistributedColumnWidth(col)}px`,
+                      // Anchors the resize handle's absolute positioning
+                      // below -- harmless when col.resizable is false since
+                      // nothing renders inside this th to be positioned
+                      // against it either way. A pinned column's own
+                      // `position: sticky` (via pinnedStyle, spread after)
+                      // works equally well as that anchor, so this only
+                      // needs to apply when NOT pinned.
+                      position: col.resizable && !col.pinned ? 'relative' : undefined,
+                      ...pinnedStyle,
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                      {col.title}
-                      {isSortable && sortKey === col.key && (
-                        <span>{sortDirection === 'asc' ? '▲' : '▼'}</span>
-                      )}
-                    </div>
+                    {isSortable ? (
+                      // A real <button> here (rather than the <th> itself
+                      // carrying tabIndex/onKeyDown) gets native focusability
+                      // and Enter/Space activation for free, and is
+                      // announced by a screen reader as an actual button
+                      // instead of relying on aria-sort alone to signal
+                      // that a plain-looking header is interactive -- the
+                      // WAI-ARIA sortable-table pattern's own recommended
+                      // shape. aria-sort stays on the <th>, where the
+                      // pattern expects it. The header padding lives on the
+                      // button (not the <th>, which is padding: 0 above)
+                      // and the button is width: 100% + border-box, so the
+                      // whole cell stays clickable, not just the text/arrow
+                      // -- matching the click target the plain <th> gave
+                      // before this was a <button> at all.
+                      <button
+                        type="button"
+                        onClick={e => handleSort(col.key, e.shiftKey)}
+                        title="Click to sort. Shift+click to add a secondary sort."
+                        className="ai-focus-ring"
+                        data-grid-row={0}
+                        data-grid-col={gridCol}
+                        tabIndex={isFocusedCell(0, gridCol) ? 0 : -1}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.375rem',
+                          // height: 100% still matters even with the title
+                          // itself now truncating below (a taller sibling
+                          // header cell -- the checkbox column's own fixed
+                          // padding, e.g. -- can still make this <th> taller
+                          // than the button's own content for reasons
+                          // unrelated to this button's own title at all;
+                          // table cells in the same row always stretch to
+                          // the row's tallest cell) -- without this the
+                          // button would leave dead (unclickable) space
+                          // above/below it inside a <th> taller than its
+                          // own content.
+                          width: '100%',
+                          height: '100%',
+                          boxSizing: 'border-box',
+                          padding: 'var(--ai-table-header-padding, var(--ai-padding-md, 0.75rem 1rem))',
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          background: 'none',
+                          border: 'none',
+                          font: 'inherit',
+                          color: 'inherit',
+                          textAlign: 'left',
+                          // Real, reported bug (issue #542): this title used
+                          // to wrap to a 2nd line instead of truncating
+                          // whenever a column was too narrow for it,
+                          // inconsistent with every body <td> (which already
+                          // truncates -- see that cell's own whiteSpace:
+                          // 'nowrap' a few hundred lines up) and fatal to
+                          // defaultPageSize="auto"'s whole promise: a header
+                          // that can silently grow to 2+ lines makes
+                          // computeAutoPageSize's own (necessarily
+                          // single-line) height assumption impossible to
+                          // ever guarantee, confirmed for real -- the exact
+                          // same title, at the exact same column width,
+                          // wrapped under CI's Linux font stack but not a
+                          // local Windows one, because a wrap point depends
+                          // on real glyph widths, which genuinely differ
+                          // across platforms/fonts for identical CSS. The
+                          // title <span> below carries its own `minWidth: 0`
+                          // for the standard reason a flex child needs it to
+                          // truncate at all (a flex item's default
+                          // min-width is 'auto', which otherwise refuses to
+                          // shrink below its own content's natural width no
+                          // matter what overflow/text-overflow says).
+                        }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{col.title}</span>
+                        {sortDescriptor && (
+                          // aria-sort on the <th> above already conveys sort
+                          // direction programmatically -- without
+                          // aria-hidden, a screen reader also announces
+                          // this character literally ("black up-pointing
+                          // triangle"), redundant and confusing next to
+                          // that.
+                          <span aria-hidden="true">{sortDescriptor.direction === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                        {sortPriority !== null && (
+                          <>
+                            {/* Only rendered once a second column has
+                                actually joined the sort (see sortPriority's
+                                own comment above). Purely a visual aid for
+                                a sighted user glancing at the header row --
+                                aria-sort conveys THIS column's own
+                                direction, but not its priority relative to
+                                any other sorted column, which is exactly
+                                what a screen reader user is missing
+                                without the VisuallyHidden text alongside
+                                it below (real Gemini-caught defect, PR
+                                #337: this badge was originally
+                                aria-hidden with no accessible replacement
+                                at all, so a screen reader user could tell
+                                "this column is sorted" from aria-sort
+                                alone, but never which one is primary vs.
+                                secondary). */}
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 'var(--ai-font-weight-bold, 700)',
+                                color: 'var(--ai-color-primary-text, #ffffff)',
+                                background: 'var(--ai-color-primary, #3b82f6)',
+                                borderRadius: 'var(--ai-radius-xl, 999px)',
+                                minWidth: '1rem',
+                                height: '1rem',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '0 0.25rem',
+                                boxSizing: 'border-box',
+                              }}
+                            >
+                              {sortPriority}
+                            </span>
+                            <VisuallyHidden>{`sort priority ${sortPriority}`}</VisuallyHidden>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                        {col.title}
+                      </div>
+                    )}
+                    {renderResizeHandle(col)}
                   </th>
                 );
               })}
+              {hasRowCommands && (
+                <th
+                  data-grid-row={0}
+                  data-grid-col={colOffset + visibleColumns.length}
+                  tabIndex={isFocusedCell(0, colOffset + visibleColumns.length) ? 0 : -1}
+                  className="ai-focus-ring"
+                  style={{
+                    padding: 'var(--ai-table-header-padding, var(--ai-padding-md, 0.75rem 1rem))',
+                    ...(rowCommandsColumnPinned
+                      ? { position: 'sticky', right: 0, zIndex: Z_INDEX.STICKY + 1, background: 'var(--ai-bg-container, #f9fafb)' }
+                      : {}),
+                  }}
+                >
+                  <VisuallyHidden>Row actions</VisuallyHidden>
+                </th>
+              )}
             </tr>
           </thead>
 
-          {/* Virtual Spacer Top */}
           <tbody>
-            {startIndex > 0 && (
+            {sortedData.length === 0 && emptyState ? (
+              // Header and (if pagination is on) the footer's own "0 of 0"
+              // text already render normally around this -- only the row
+              // area itself needs a stand-in. A single colSpan-ed row (not
+              // replacing the whole <table>) keeps that header visible,
+              // matching what a real user needs to see (sortable columns,
+              // selection controls) even while there's nothing to act on.
               <tr>
-                <td colSpan={columns.length + (selectable ? 1 : 0)} style={{ height: `${startIndex * itemHeight}px`, padding: 0 }} />
+                <td colSpan={totalColSpan} style={{ padding: '2rem 1rem', textAlign: 'center' }}>
+                  {/* Crossfade (issue #371) -- a plain CSS `animation`, not
+                      Presence: the empty <tr> and the real virtualized row
+                      set are two entirely different element structures at
+                      the same tree position (this ternary's two branches),
+                      so React always unmounts one and mounts the other on
+                      every flip -- there's no way to keep both mounted at
+                      once inside a valid <tbody> to animate a true, both-
+                      sides-fading overlap (a stray wrapper <div> around
+                      multiple <tr> siblings isn't valid table markup, and
+                      Presence itself only ever wraps a single element).
+                      This mount-only entrance (no exit animation attempted
+                      for the same structural reason) is the honest, safe
+                      version: reuses ai-scale-in (opacity + transform,
+                      already shared/injected by ThemeProvider -- no new
+                      keyframe needed) and the same --ai-transition-* tokens
+                      the focus-ring fade/Toast's own animations already
+                      use, which collapse to 0s automatically under
+                      reducedMotion (theme/animation.tsx's own token
+                      derivation), so no separate reduced-motion branch is
+                      needed here either. Applied to an inner <div>, not the
+                      <td> itself -- `transform` on a table CELL has real
+                      cross-browser rendering quirks (border/background
+                      distortion) that a plain block-level wrapper avoids
+                      entirely. Not sharing a class with any focusable
+                      element (plain content, no .ai-focus-ring), so the
+                      transition-shorthand collision class of bug fixed for
+                      Toast (issue #358) doesn't apply here -- checked, not
+                      assumed. */}
+                  <div style={{ animation: 'ai-scale-in var(--ai-transition-duration-normal, 200ms) var(--ai-transition-easing, ease)' }}>
+                    {emptyState}
+                  </div>
+                </td>
               </tr>
-            )}
+            ) : (
+              <>
+                {/* Virtual Spacer Top -- pure layout padding, not a real
+                    grid row, so it's excluded from the accessible row
+                    model entirely rather than getting its own
+                    aria-rowindex. */}
+                {startIndex > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={totalColSpan} style={{ height: `${startIndex * itemHeight}px`, padding: 0 }} />
+                  </tr>
+                )}
 
-            {/* Visible Rows */}
-            {visibleRows.map((record, relativeIndex) => {
-              const actualIndex = startIndex + relativeIndex;
-              const key = rowKey ? rowKey(record, actualIndex) : actualIndex;
-              const subtheme = rowSubtheme?.(record, actualIndex);
-              const subthemeColors: Partial<SubthemeColors> | null =
-                typeof subtheme === 'string' ? resolveSubtheme(subtheme) : subtheme ?? null;
-              const selectionKey = selectable ? getSelectionKey(record, actualIndex) : null;
-              const isRowSelected = selectionKey !== null && selectedKeySet.has(selectionKey);
-              return (
-                <tr
-                  key={key}
-                  onClick={() => {
-                    onRowClick?.(record, actualIndex);
-                    aiBus.emit('datatable:row_clicked', { id, index: actualIndex });
-                  }}
-                  style={{
-                    height: `${itemHeight}px`,
-                    cursor: onRowClick ? 'pointer' : undefined,
-                    borderBottom: subthemeColors?.border
-                      ? effectiveBorderStyle === 'none'
-                        ? 'none'
-                        : `0.0625rem dashed ${subthemeColors.border}`
-                      : '0.0625rem solid var(--ai-border, #f3f4f6)',
-                    background: isRowSelected
-                      ? 'var(--ai-subtheme-info-bg, rgba(59, 130, 246, 0.08))'
-                      : subthemeColors?.background
-                      ? subthemeColors.background
-                      : actualIndex % 2 === 0 ? 'transparent' : 'var(--ai-table-stripe-bg, var(--ai-bg-container, #f9fafb))',
-                    transition: 'background 0.15s ease',
-                  }}
-                >
-                  {selectable && selectionKey !== null && (
-                    <td
-                      style={{ padding: 'var(--ai-table-cell-padding, var(--ai-padding-sm, 0.5rem 1rem))' }}
-                      onClick={e => e.stopPropagation()}
+                {/* Visible Rows */}
+                {visibleRows.map((record, relativeIndex) => {
+                  const actualIndex = startIndex + relativeIndex;
+                  const key = rowKey ? rowKey(record, actualIndex) : actualIndex;
+                  const subtheme = rowSubtheme?.(record, actualIndex);
+                  const subthemeColors: Partial<SubthemeColors> | null =
+                    typeof subtheme === 'string' ? resolveSubtheme(subtheme) : subtheme ?? null;
+                  const selectionKey = selectable ? getSelectionKey(record, actualIndex) : null;
+                  const isRowSelected = selectionKey !== null && selectedKeySet.has(selectionKey);
+                  const gridRow = actualIndex + 1;
+
+                  // Selection visual feedback (issue #360): a left
+                  // indicator + inset border on the cells themselves,
+                  // instead of a full-row background tint -- so a custom
+                  // rowSubtheme/zebra-stripe background stays fully
+                  // visible on a selected row, not washed out underneath
+                  // an overlay. Applied via box-shadow (not border/
+                  // background), deliberately: box-shadow doesn't affect
+                  // box sizing, so toggling selection never causes even a
+                  // 1px content reflow the way a real border would.
+                  //
+                  // Contiguous multi-select regions merge into one
+                  // continuous block rather than drawing a separate frame
+                  // around every row (which would look like a ladder of
+                  // thick lines through an already-dense, zebra-striped
+                  // grid): a selected row's own TOP cap only renders when
+                  // the row immediately above it isn't ALSO selected, and
+                  // its BOTTOM cap only renders when the row immediately
+                  // below it isn't either. An isolated single selected row
+                  // (neither neighbor selected) gets both caps and reads
+                  // as a fully framed row; the middle of a multi-row
+                  // selection gets neither, so no horizontal divider
+                  // appears between two selected rows sitting next to each
+                  // other. Neighbors are looked up directly in
+                  // `paginatedData` (the full current-page array, not
+                  // `visibleRows`) so this merges correctly across a
+                  // virtualization window boundary, not just between rows
+                  // that happen to be rendered at the same time.
+                  const prevRecord = actualIndex > 0 ? paginatedData[actualIndex - 1] : undefined;
+                  const nextRecord = actualIndex < paginatedData.length - 1 ? paginatedData[actualIndex + 1] : undefined;
+                  const prevRowSelected =
+                    isRowSelected && prevRecord !== undefined && selectedKeySet.has(getSelectionKey(prevRecord, actualIndex - 1));
+                  const nextRowSelected =
+                    isRowSelected && nextRecord !== undefined && selectedKeySet.has(getSelectionKey(nextRecord, actualIndex + 1));
+                  const selectionAccentColor = 'var(--ai-color-primary, #3b82f6)';
+                  const selectionFrameShadows: string[] = [];
+                  if (isRowSelected && !prevRowSelected) selectionFrameShadows.push(`inset 0 0.125rem 0 0 ${selectionAccentColor}`);
+                  if (isRowSelected && !nextRowSelected) selectionFrameShadows.push(`inset 0 -0.125rem 0 0 ${selectionAccentColor}`);
+                  // The FIRST cell in the row (the selection checkbox/radio
+                  // <td> when present, otherwise the first data column)
+                  // additionally carries the left accent bar -- box-shadow
+                  // is local to each element's own box, so this can't be
+                  // set once on the row and expected to bleed into every
+                  // cell the way a <tr>-level border would.
+                  const otherCellsSelectionShadow = isRowSelected && selectionFrameShadows.length > 0 ? selectionFrameShadows.join(', ') : 'none';
+                  const firstCellSelectionShadow = isRowSelected
+                    ? [`inset 0.25rem 0 0 0 ${selectionAccentColor}`, ...selectionFrameShadows].join(', ')
+                    : 'none';
+                  const hasSelectionCell = selectable && !hideSelectionColumn && selectionKey !== null;
+                  // "Being edited" indicator (issue #545) -- composed
+                  // alongside selection's own box-shadow above rather than
+                  // replacing it, since a row can be both selected AND
+                  // being edited at once (the two key-sets are fully
+                  // independent -- editing never replaces a row's cells the
+                  // way the original design draft would have). Top/bottom
+                  // caps on EVERY cell (not just first/last, and with no
+                  // neighbor-merging the way selection's own frame has) --
+                  // simpler than replicating selection's merge logic a
+                  // second time, and two adjacent editing rows sharing a
+                  // faint double line is a minor, acceptable cosmetic
+                  // difference, not a correctness concern. A "paired" row
+                  // (its record is ALSO present in the edit co-grid's own
+                  // current view, per `currentPageEditingKeys`) gets a
+                  // slightly thicker cap so the two grids visually read as
+                  // the same row shown twice.
+                  const editingKey = editable ? getEditingKey(record, actualIndex) : null;
+                  const isRowEditing = editingKey !== null && editingKeySet.has(editingKey);
+                  const isPairedEditing = isRowEditing && currentPageEditingKeys.has(editingKey!);
+                  const editingAccentColor = 'var(--ai-color-quaternary, #a855f7)';
+                  const editingCapSize = isPairedEditing ? '0.1875rem' : '0.125rem';
+                  const editingShadow = isRowEditing
+                    ? `inset 0 ${editingCapSize} 0 0 ${editingAccentColor}, inset 0 -${editingCapSize} 0 0 ${editingAccentColor}`
+                    : '';
+                  const combineShadow = (base: string, extra: string) => (!extra ? base : base === 'none' ? extra : `${base}, ${extra}`);
+                  // Reused by both the <tr> itself (below) and, for a
+                  // PINNED cell specifically, a real-browser-screenshot-
+                  // caught variant that flattens it to a guaranteed-opaque
+                  // color -- see getPinnedCellStyle's own comment for why a
+                  // sticky cell needs its own explicit opaque background
+                  // rather than relying on the row's shared one.
+                  const rowBackgroundColor = subthemeColors?.background
+                    ? subthemeColors.background
+                    : actualIndex % 2 === 0 ? 'transparent' : 'var(--ai-table-stripe-bg, var(--ai-bg-container, #f9fafb))';
+                  // A naive `rowBackgroundColor === 'transparent' ? <opaque
+                  // fallback> : rowBackgroundColor` substitution (this
+                  // code's own first version) missed a real case, found via
+                  // a real browser screenshot, not reasoning: a custom
+                  // `rowSubtheme` background can ALSO be semi-transparent
+                  // (the demo's own "top performer" highlight is `rgba(...,
+                  // 0.12)`) -- not the literal string 'transparent', so that
+                  // check passed it through unchanged, and 12%-opacity is
+                  // still transparent enough for scrolled-under sibling-cell
+                  // content to visibly bleed through a pinned cell. A
+                  // stacked `linear-gradient(X, X)` image layer OVER a
+                  // plain opaque `background-color` is the general fix for
+                  // ANY row background, not just the literal-transparent
+                  // special case: the gradient layer paints
+                  // `rowBackgroundColor` exactly as authored (including any
+                  // alpha), and the solid color underneath is only ever
+                  // visible through whatever alpha that top layer leaves --
+                  // never through to actual scrolled-under DOM content,
+                  // which is the whole point.
+                  const pinnedCellBackgroundColor = `linear-gradient(${rowBackgroundColor}, ${rowBackgroundColor}), var(--ai-bg-surface, #ffffff)`;
+
+                  return (
+                    <tr
+                      key={key}
+                      // +2: 1-based, plus the header row -- see the
+                      // <table>'s own aria-rowcount comment on why this
+                      // reflects the row's position across the whole
+                      // dataset (pageOffset), not just the current page.
+                      aria-rowindex={pageOffset + actualIndex + 2}
+                      // aria-selected reflects real selection state
+                      // regardless of `hideSelectionColumn` -- a screen
+                      // reader user still needs to know a row is selected
+                      // even when there's no visible checkbox/radio widget
+                      // to convey it. `undefined` (not `false`) when
+                      // selection isn't active at all, matching aria-sort's
+                      // own "omit when not applicable" convention elsewhere
+                      // in this file.
+                      aria-selected={selectable ? isRowSelected : undefined}
+                      onClick={e => {
+                        onRowClick?.(record, actualIndex);
+                        aiBus.emit('datatable:row_clicked', { id, index: actualIndex });
+                        if (selectable && !disableRowClickSelection && selectionKey !== null) {
+                          handleRowSelectClick(selectionKey, actualIndex, {
+                            shiftKey: e.shiftKey,
+                            ctrlKey: e.ctrlKey,
+                            metaKey: e.metaKey,
+                          });
+                        }
+                      }}
+                      // Clears justLeftEmptyState once the entrance
+                      // animation genuinely finishes (a real completion
+                      // signal, not a guessed timeout -- see this flag's
+                      // own comment above). Only wired up while the
+                      // animation is actually playing; harmless if it
+                      // fires on more than one row (all clear the same
+                      // flag to the same value).
+                      onAnimationEnd={justLeftEmptyState ? handleRowEntranceAnimationEnd : undefined}
+                      style={{
+                        height: `${itemHeight}px`,
+                        cursor: onRowClick || (selectable && !disableRowClickSelection) ? 'pointer' : undefined,
+                        borderBottom: subthemeColors?.border
+                          ? effectiveBorderStyle === 'none'
+                            ? 'none'
+                            : `0.0625rem dashed ${subthemeColors.border}`
+                          : '0.0625rem solid var(--ai-border, #f3f4f6)',
+                        backgroundColor: rowBackgroundColor,
+                        // Selection no longer washes the row's own
+                        // background at all (issue #360) -- a custom
+                        // rowSubtheme tint or zebra stripe stays exactly as
+                        // it is regardless of selection state, so a
+                        // selected error/warning row doesn't lose its own
+                        // color coding. The left-indicator + inset-border
+                        // treatment (each <td>'s own boxShadow, computed
+                        // above) is what conveys selection now.
+                        transition: 'background-color var(--ai-transition-duration-fast, 0.15s) var(--ai-transition-easing, ease)',
+                        // Entrance for the empty->populated transition (see
+                        // justLeftEmptyState's own comment) -- ai-fade-in,
+                        // not ai-scale-in: the empty state's own div wrapper
+                        // can use a transform-based scale entrance because
+                        // it's a plain block element, but this animation
+                        // applies directly to a real <tr> (there's no
+                        // per-row wrapper element to target instead without
+                        // invalid table markup), and transform on a table
+                        // row/cell has real cross-browser rendering quirks
+                        // (border/background distortion) the empty state's
+                        // own comment already documents avoiding.
+                        animation: justLeftEmptyState
+                          ? 'ai-fade-in var(--ai-transition-duration-normal, 200ms) var(--ai-transition-easing, ease)'
+                          : undefined,
+                      }}
                     >
-                      <CheckboxPrimitive.Root
-                        checked={isRowSelected}
-                        onCheckedChange={() => toggleRowSelected(selectionKey)}
-                        aria-label={`Select row ${actualIndex + 1}`}
-                        className="ai-focus-ring"
-                        style={{
-                          all: 'unset',
-                          width: '1.125rem',
-                          height: '1.125rem',
-                          borderRadius: 'var(--ai-radius-sm, 0.25rem)',
-                          border: `0.0625rem solid ${isRowSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
-                          background: isRowSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-surface, #ffffff)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxSizing: 'border-box',
-                        }}
-                      >
-                        <CheckboxPrimitive.Indicator
-                          style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex' }}
+                      {selectable && !hideSelectionColumn && selectionKey !== null && (
+                        <td
+                          style={{
+                            // Density-scaled vertical, fixed horizontal --
+                            // see DENSITY_SELECTION_CELL_PADDING_V_PX's own
+                            // comment (DataTableSlice.tsx): a FIXED '0.5rem'
+                            // here (this cell's own original fix for the
+                            // checkbox column rendering too WIDE) rendered
+                            // taller than compact density's own row-height
+                            // budget, a real vertical-scrollbar regression
+                            // under defaultPageSize="auto". The horizontal
+                            // 0.5rem is unrelated to that and stays fixed --
+                            // see the header checkbox <th>'s own comment
+                            // above for why the standard text-column padding
+                            // renders a plain checkbox noticeably wider than
+                            // it needs to be.
+                            padding: `${DENSITY_SELECTION_CELL_PADDING_V_PX[effectiveDensity]}px 0.5rem`,
+                            // Always the row's first cell when rendered at
+                            // all -- carries the left accent bar as well as
+                            // the top/bottom frame caps (see this row's own
+                            // comment above on how those are computed).
+                            boxShadow: combineShadow(firstCellSelectionShadow, editingShadow),
+                            ...(selectionColumnPinned
+                              ? { position: 'sticky', left: 0, zIndex: 1, background: pinnedCellBackgroundColor }
+                              : {}),
+                          }}
+                          onClick={e => e.stopPropagation()}
                         >
-                          ✓
-                        </CheckboxPrimitive.Indicator>
-                      </CheckboxPrimitive.Root>
-                    </td>
-                  )}
-                  {columns.map(col => {
-                    const value = col.accessorFn ? col.accessorFn(record) : record[col.key];
-                    return (
-                      <td
-                        key={col.key}
-                        style={{
-                          padding: 'var(--ai-table-cell-padding, var(--ai-padding-sm, 0.5rem 1rem))',
-                          color: subthemeColors?.color ?? 'var(--ai-text-primary, #111827)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          borderRight: 'var(--ai-table-border, none)',
-                        }}
-                      >
-                        {col.render ? col.render({ value, row: record, index: actualIndex }) : String(value ?? '')}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
+                          {selectionMode === 'single' ? (
+                            // A plain hand-rolled role="radio" button, not
+                            // BaseCheckbox -- a checkbox primitive always
+                            // owns its own role="checkbox" internally, and
+                            // its sibling RadioGroup primitive brings its
+                            // OWN internal arrow-key navigation between
+                            // items, which would compete with this table's
+                            // own custom grid roving-tabindex model for the
+                            // exact same keys. A single real <button> gets
+                            // Space/Enter activation for free with none of
+                            // that conflict -- deliberately not the full
+                            // APG radio-group pattern's own arrow-key
+                            // navigation between radios, since arrow keys
+                            // here already mean "move focus to the
+                            // adjacent grid cell."
+                            <button
+                              type="button"
+                              role="radio"
+                              aria-checked={isRowSelected}
+                              aria-label={`Select row ${actualIndex + 1}`}
+                              onClick={() => toggleRowSelected(selectionKey, actualIndex)}
+                              className="ai-focus-ring"
+                              data-grid-row={gridRow}
+                              data-grid-col={0}
+                              tabIndex={isFocusedCell(gridRow, 0) ? 0 : -1}
+                              style={{
+                                all: 'unset',
+                                width: '1.125rem',
+                                height: '1.125rem',
+                                borderRadius: '50%',
+                                border: `0.0625rem solid ${isRowSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
+                                background: 'var(--ai-bg-surface, #ffffff)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxSizing: 'border-box',
+                              }}
+                            >
+                              {isRowSelected && (
+                                <span
+                                  aria-hidden="true"
+                                  style={{ width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: 'var(--ai-color-primary, #3b82f6)' }}
+                                />
+                              )}
+                            </button>
+                          ) : (
+                            <BaseCheckbox.Root
+                              checked={isRowSelected}
+                              onCheckedChange={() => toggleRowSelected(selectionKey, actualIndex)}
+                              aria-label={`Select row ${actualIndex + 1}`}
+                              className="ai-focus-ring"
+                              data-grid-row={gridRow}
+                              data-grid-col={0}
+                              tabIndex={isFocusedCell(gridRow, 0) ? 0 : -1}
+                              style={{
+                                all: 'unset',
+                                width: '1.125rem',
+                                height: '1.125rem',
+                                borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+                                border: `0.0625rem solid ${isRowSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
+                                background: isRowSelected ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-surface, #ffffff)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                boxSizing: 'border-box',
+                              }}
+                            >
+                              <BaseCheckbox.Indicator
+                                style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex' }}
+                              >
+                                ✓
+                              </BaseCheckbox.Indicator>
+                            </BaseCheckbox.Root>
+                          )}
+                        </td>
+                      )}
+                      {displayColumns.map((col, colIndex) => {
+                        const value = col.accessorFn ? col.accessorFn(record) : record[col.key];
+                        const gridCol = colOffset + colIndex;
+                        return (
+                          <td
+                            key={col.key}
+                            // Roving-tabindex target for every data cell,
+                            // uniformly -- including a column with a custom
+                            // `render`. See useTableKeyboardNav's own header
+                            // comment for why this deliberately does not try
+                            // to detect/land on an interactive element a
+                            // custom render might contain: that content is
+                            // still reachable, just via native Tab order
+                            // rather than being folded into the grid's
+                            // single-composite-widget model.
+                            data-grid-row={gridRow}
+                            data-grid-col={gridCol}
+                            tabIndex={isFocusedCell(gridRow, gridCol) ? 0 : -1}
+                            className="ai-focus-ring"
+                            style={{
+                              padding: 'var(--ai-table-cell-padding, var(--ai-padding-sm, 0.5rem 1rem))',
+                              color: subthemeColors?.color ?? 'var(--ai-text-primary, #111827)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              borderRight: 'var(--ai-table-border, none)',
+                              // Only the true first cell of the row (this
+                              // column when there's no selection <td>
+                              // rendered before it) carries the left accent
+                              // -- every other cell just carries the
+                              // top/bottom frame caps, if any.
+                              boxShadow: combineShadow(
+                                !hasSelectionCell && colIndex === 0 ? firstCellSelectionShadow : otherCellsSelectionShadow,
+                                editingShadow
+                              ),
+                              ...getPinnedCellStyle(col, false, pinnedCellBackgroundColor),
+                            }}
+                          >
+                            {col.render
+                              ? col.render(
+                                  editable
+                                    ? {
+                                        value,
+                                        row: record,
+                                        index: actualIndex,
+                                        isEditing: isRowEditing,
+                                        startEditingRow: () => startEditingRow(editingKey!),
+                                        cancelEditingRow: () => cancelEditingRow(editingKey!),
+                                      }
+                                    : { value, row: record, index: actualIndex }
+                                )
+                              : String(value ?? '')}
+                          </td>
+                        );
+                      })}
+                      {hasRowCommands && (
+                        <td
+                          data-grid-row={gridRow}
+                          data-grid-col={colOffset + visibleColumns.length}
+                          tabIndex={isFocusedCell(gridRow, colOffset + visibleColumns.length) ? 0 : -1}
+                          className="ai-focus-ring"
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            padding: 'var(--ai-table-cell-padding, var(--ai-padding-sm, 0.5rem 1rem))',
+                            // Always the last cell, never the first -- only
+                            // the top/bottom frame caps apply here.
+                            boxShadow: combineShadow(otherCellsSelectionShadow, editingShadow),
+                            ...(rowCommandsColumnPinned
+                              ? { position: 'sticky', right: 0, zIndex: 1, background: pinnedCellBackgroundColor }
+                              : {}),
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            {rowCommands!
+                              .filter(cmd => cmd.isVisible?.(record, actualIndex) ?? true)
+                              .map(cmd => {
+                                const isCmdDisabled = cmd.isDisabled?.(record, actualIndex) ?? false;
+                                return (
+                                <button
+                                  key={cmd.id}
+                                  type="button"
+                                  disabled={isCmdDisabled}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    aiBus.emit('datatable:row_command', {
+                                      id,
+                                      command: cmd.id,
+                                      key: getSelectionKey(record, actualIndex),
+                                      index: actualIndex,
+                                    });
+                                  }}
+                                  aria-label={cmd.label}
+                                  title={cmd.label}
+                                  // Gated to the SAME isFocusedCell condition
+                                  // as the wrapping <td> above, not left at
+                                  // the browser's own default tabIndex=0 --
+                                  // real Gemini-caught defect (PR #333): an
+                                  // unconditional tabIndex=0 here meant a
+                                  // plain page Tab sweep (not this grid's own
+                                  // arrow-key nav) stopped at every command
+                                  // button on every visible row, one row at a
+                                  // time, before it could ever leave the
+                                  // table. Matches the W3C APG Grid pattern's
+                                  // own intent: Tab moves focus OUT of the
+                                  // composite widget entirely; arrow keys
+                                  // move focus WITHIN it. Reaching this row's
+                                  // actions cell via the grid's arrow-key nav
+                                  // still makes every command button here
+                                  // tabbable together (a real, deliberate
+                                  // exception to "one focus target per grid
+                                  // coordinate" -- there's more than one
+                                  // widget in this one cell), so a keyboard
+                                  // user can still Tab between them once
+                                  // they've actually arrived at this row.
+                                  tabIndex={isFocusedCell(gridRow, colOffset + visibleColumns.length) ? 0 : -1}
+                                  // ai-btn (issue #370) -- a plain `all:
+                                  // 'unset'` icon button had a pointer
+                                  // cursor and nothing else: no hover
+                                  // background, no :active press feedback,
+                                  // nothing to signal it's actually a
+                                  // clickable button rather than a static
+                                  // icon. .ai-btn gives it the same
+                                  // systematic hover-tint/:active-scale
+                                  // treatment every other icon button in
+                                  // the toolkit already has (Carousel's
+                                  // nav arrows, Select's trigger), falling
+                                  // back to a transparent base background
+                                  // via its own --ai-btn-bg fallback --
+                                  // exactly right for a ghost icon button
+                                  // with no background at rest.
+                                  //
+                                  // Explicit resets below (border/background/
+                                  // padding/font), NOT `all: 'unset'` --
+                                  // real, Gemini-caught defect on this PR's
+                                  // first pass, confirmed directly: `all:
+                                  // 'unset'` is itself an INLINE declaration,
+                                  // which (per the CSS cascade's origin/
+                                  // importance rules, not a specificity
+                                  // contest) beats any stylesheet rule that
+                                  // ISN'T `!important`. `.ai-btn:hover`'s
+                                  // background and `.ai-focus-ring`'s
+                                  // outline ARE `!important` (confirmed
+                                  // still working, directly, in a real
+                                  // browser), but `.ai-btn:active`'s own
+                                  // press-down `transform` deliberately
+                                  // isn't -- so the inline `all: 'unset'`
+                                  // silently reset `transform` to `none` and
+                                  // no press feedback ever showed. Matching
+                                  // Carousel's/Select's own established
+                                  // pattern (explicit per-property resets,
+                                  // never `all: 'unset'`) leaves `transform`
+                                  // untouched inline, so `.ai-btn:active`'s
+                                  // class rule is free to apply normally.
+                                  className="ai-btn ai-focus-ring"
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    padding: 0,
+                                    font: 'inherit',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: `${rowCommandButtonSizePx}px`,
+                                    height: `${rowCommandButtonSizePx}px`,
+                                    borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+                                    // isDisabled -- direct visual feedback
+                                    // ("when a row is in edit, do not hide
+                                    // the edit command, just disable it to
+                                    // maintain layout"): same opacity/
+                                    // not-allowed treatment the column-
+                                    // visibility menu's own isDisabled
+                                    // guard already uses elsewhere in this
+                                    // file, not a one-off convention.
+                                    cursor: isCmdDisabled ? 'not-allowed' : 'pointer',
+                                    opacity: isCmdDisabled ? 0.5 : 1,
+                                    color: 'var(--ai-text-secondary, #6b7280)',
+                                    fontSize: '0.875rem',
+                                  }}
+                                >
+                                  {cmd.icon ? <span aria-hidden="true">{cmd.icon}</span> : cmd.label}
+                                </button>
+                                );
+                              })}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
 
-            {/* Virtual Spacer Bottom */}
-            {endIndex < totalItems && (
-              <tr>
-                <td colSpan={columns.length + (selectable ? 1 : 0)} style={{ height: `${(totalItems - endIndex) * itemHeight}px`, padding: 0 }} />
-              </tr>
+                {/* Virtual Spacer Bottom -- same reasoning as the top spacer. */}
+                {endIndex < totalItems && (
+                  <tr aria-hidden="true">
+                    <td colSpan={totalColSpan} style={{ height: `${(totalItems - endIndex) * itemHeight}px`, padding: 0 }} />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
       </div>
+
+      {editable && (
+        <EditCoGrid
+          tableId={id}
+          columns={displayColumns}
+          getColumnWidth={getRedistributedColumnWidth}
+          editSchema={editSchema!}
+          entries={editEntries}
+          pairedKeys={currentPageEditingKeys}
+          truncatedCount={truncatedEditingCount}
+          collapsed={isCoGridCollapsed}
+          onSave={handleEditSave}
+          onCancel={handleEditCancel}
+        />
+      )}
 
       {/* Pagination Footer — omitted entirely when `pagination` is false,
           since there's no page concept to show controls for; the table
@@ -830,25 +3181,34 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
       >
         <div role="status" aria-live="polite" aria-atomic="true" style={{ color: 'var(--ai-text-secondary, #6b7280)' }}>
           {strings.showingEntries(
-            totalItems > 0 ? (validCurrentPage - 1) * pageSize + 1 : 0,
-            Math.min(validCurrentPage * pageSize, sortedData.length),
+            totalItems > 0 ? (validCurrentPage - 1) * effectivePageSize + 1 : 0,
+            Math.min(validCurrentPage * effectivePageSize, sortedData.length),
             sortedData.length
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <UIGroup>
+            {/* Issue #419: "Auto" is a real, always-present option here now,
+                not a state the dropdown disappears for. Switching to it
+                writes pageSizeRef synchronously via computeAutoPageSize()
+                for the exact same reason the numeric branch already writes
+                the ref before calling goToPage (see that comment) --
+                goToPage's onPageChange callback runs synchronously, before
+                React's async state update reaches either closure
+                variable. */}
             <select
               aria-label={strings.rowsPerPage}
-              value={pageSize}
+              value={isAutoPageSize ? 'auto' : pageSize}
               onChange={e => {
-                const newSize = Number(e.target.value);
-                // Write the ref before setPageSize/goToPage -- see
-                // pageSizeRef's own comment on why: goToPage's onPageChange
-                // callback runs synchronously, before setPageSize's async
-                // update reaches the `pageSize` closure variable.
-                pageSizeRef.current = newSize;
-                setPageSize(newSize);
+                if (e.target.value === 'auto') {
+                  pageSizeRef.current = computeAutoPageSize();
+                  setPageSizeSelection('auto');
+                } else {
+                  const newSize = Number(e.target.value);
+                  pageSizeRef.current = newSize;
+                  setPageSizeSelection(newSize);
+                }
                 paginationGoToPage(1);
               }}
               className="ai-btn"
@@ -862,6 +3222,7 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
                 ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
               }}
             >
+              <option value="auto">{strings.perPageAutoOption}</option>
               {pageSizeOptions.map(opt => (
                 <option key={opt} value={opt}>
                   {strings.perPageOption(opt)}
@@ -869,21 +3230,28 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
               ))}
             </select>
 
+            {/* First/Last (issue #485) join the same UIGroup as Prev/Next --
+                plain elements, not toolcrib <Button>s, so they pick up
+                UIGroup's own CSS-based corner-squaring automatically
+                (scoped to direct children via :first-child/:last-child)
+                the same way the page-size <select> and Prev/Next already
+                do, with no manual corner-radius styling needed here. */}
+            <button
+              onClick={() => paginationGoToPage(1)}
+              disabled={validCurrentPage === 1}
+              aria-label={strings.firstPage}
+              className="ai-btn"
+              style={paginationNavButtonStyle(validCurrentPage === 1)}
+            >
+              ⏮
+            </button>
+
             <button
               onClick={() => paginationGoToPage(validCurrentPage - 1)}
               disabled={validCurrentPage === 1}
               aria-label={strings.previousPage}
               className="ai-btn"
-              style={{
-                padding: 'var(--ai-padding-xs, 0.25rem 0.5rem)',
-                border: '0.0625rem solid var(--ai-border, #d1d5db)',
-                background: 'var(--ai-bg-surface, #ffffff)',
-                color: 'var(--ai-text-primary, #111827)',
-                fontSize: '0.75rem',
-                cursor: validCurrentPage === 1 ? 'not-allowed' : 'pointer',
-                opacity: validCurrentPage === 1 ? 0.5 : 1,
-                ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
-              }}
+              style={paginationNavButtonStyle(validCurrentPage === 1)}
             >
               ◀
             </button>
@@ -906,18 +3274,19 @@ export function DataTable<T extends Record<string, any> = Record<string, any>>({
               disabled={validCurrentPage === totalPages}
               aria-label={strings.nextPage}
               className="ai-btn"
-              style={{
-                padding: 'var(--ai-padding-xs, 0.25rem 0.5rem)',
-                border: '0.0625rem solid var(--ai-border, #d1d5db)',
-                background: 'var(--ai-bg-surface, #ffffff)',
-                color: 'var(--ai-text-primary, #111827)',
-                fontSize: '0.75rem',
-                cursor: validCurrentPage === totalPages ? 'not-allowed' : 'pointer',
-                opacity: validCurrentPage === totalPages ? 0.5 : 1,
-                ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
-              }}
+              style={paginationNavButtonStyle(validCurrentPage === totalPages)}
             >
               ▶
+            </button>
+
+            <button
+              onClick={() => paginationGoToPage(totalPages)}
+              disabled={validCurrentPage === totalPages}
+              aria-label={strings.lastPage}
+              className="ai-btn"
+              style={paginationNavButtonStyle(validCurrentPage === totalPages)}
+            >
+              ⏭
             </button>
           </UIGroup>
         </div>

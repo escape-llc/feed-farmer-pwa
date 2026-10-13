@@ -1,14 +1,8 @@
 'use client';
 
 import React, { type ReactNode, useContext } from 'react';
-import {
-  DatePicker as AriaDatePicker,
-  DatePickerStateContext,
-  DateInput,
-  DateSegment,
-  Group,
-  Label,
-} from 'react-aria-components/DatePicker';
+import { useFieldsetDisabled } from '../Fieldset/FieldsetContext';
+import { DatePicker as AriaDatePicker, DatePickerStateContext, Group, Label } from 'react-aria-components/DatePicker';
 import { I18nProvider } from 'react-aria-components/I18nProvider';
 import { CalendarDate } from '@internationalized/date';
 import { useOptionalFormContext } from '../Form/FormContext';
@@ -18,8 +12,12 @@ import { useInjectInteractionStyles } from '../../theme/interactionStyles';
 import { Popup } from '../Overlay/Popup';
 import { Z_INDEX } from '../../theme/zIndex';
 import { Calendar } from './Calendar';
+import { type SquareCornerOption, resolveSquareCorners } from '../Card/Card';
+import { useUIGroupSquareCorners } from '../UIGroup/UIGroupContext';
 import { type DatePickerSliceState } from './DatePickerSlice';
-import { CONTROL_FONT_SIZE_VAR, resolveControlPadding, type ControlSize } from '../../theme/controlSize';
+import { CONTROL_FONT_SIZE_VAR, type ControlSize } from '../../theme/controlSize';
+import { fieldGroupStyle, DateSegments, CalendarPopupTrigger } from './calendarParts';
+import { focusRingClassName } from './focusRing';
 
 /** Props for the `<DatePicker>` field + calendar popover. */
 export interface DatePickerProps {
@@ -70,6 +68,8 @@ export interface DatePickerProps {
   'aria-label'?: string;
   /** Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set. */
   'aria-labelledby'?: string;
+  /** Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern. */
+  squareCorners?: SquareCornerOption;
 }
 
 /**
@@ -78,79 +78,59 @@ export interface DatePickerProps {
  * (only available *inside* `<DatePicker>`, not from the props this
  * component's caller has direct access to).
  */
-const DatePickerFieldAndCalendar: React.FC<{ overrides?: Partial<DatePickerSliceState>; size: ControlSize }> = ({ overrides, size }) => {
+const DatePickerFieldAndCalendar: React.FC<{ overrides?: Partial<DatePickerSliceState>; size: ControlSize; squareCorners?: SquareCornerOption }> = ({ overrides, size, squareCorners }) => {
   const state = useContext(DatePickerStateContext)!;
+  const uiGroupSquareCorners = useUIGroupSquareCorners();
+  const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
 
+  // isOpen/onOpenChange are wired directly to DatePickerState, not Popup's
+  // own internal open state -- this is the actual Shell/Content
+  // decoupling: React Aria's hook logic still owns whether the picker
+  // *should* be open (triggered by the calendar button's press, or by
+  // keyboard interaction with the field), but Popup -- not React Aria's
+  // own Popover -- is the one thing that ever mounts a portal, traps
+  // focus, or handles Escape for the calendar surface.
+  //
+  // `anchor` (issue #502), not `trigger` -- positions the popup against
+  // the WHOLE field's edge, matching every other connected popover in the
+  // toolkit (Combobox's own dropdown, e.g.), while only the small
+  // calendar-glyph button (wrapped in <Popup.Trigger>, nested inside the
+  // Group below) actually opens/closes it. A single `trigger={<button>}`
+  // anchored the popup to just that small glyph instead, positioned well
+  // off the field's own edge -- reported directly. Using a REAL anchored
+  // DOM node (the Group itself, always rendered) rather than Popup's
+  // earlier-tried `anchorRef`/`virtualRef` design sidesteps a real,
+  // confirmed `virtualRef` timing gap (see Popup.tsx's own comment
+  // on why `anchor` mode exists) entirely -- there's no separate
+  // registration to race here.
   return (
-    <Group
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: resolveControlPadding(size, 'var(--ai-input-padding, 0.5rem 0.75rem)'),
-        border: '0.0625rem solid var(--ai-border, #d1d5db)',
-        borderRadius: 'var(--ai-radius-md, 0.375rem)',
-        background: 'var(--ai-bg-surface, #ffffff)',
-        width: 'fit-content',
-      }}
+    <Popup
+      anchor={
+        // The ring goes on the bordered field, not the picker's root, which
+        // is a full-width block: on the root it drew around the whole cell.
+        <Group className={focusRingClassName} style={fieldGroupStyle(size, cornerOverrides)}>
+          <DateSegments size={size} />
+          <CalendarPopupTrigger />
+        </Group>
+      }
+      isOpen={state.isOpen}
+      onOpenChange={open => state.setOpen(open)}
+      zIndex={Z_INDEX.DROPDOWN}
     >
-      <DateInput style={{ display: 'flex', fontSize: CONTROL_FONT_SIZE_VAR[size] }}>
-        {segment => (
-          <DateSegment
-            segment={segment}
-            style={{
-              padding: '0 0.0625rem',
-              textAlign: 'end',
-              color: segment.isPlaceholder ? 'var(--ai-text-secondary, #9ca3af)' : 'var(--ai-text-primary, #111827)',
-              outline: 'none',
-            }}
-          />
-        )}
-      </DateInput>
-
-      {/*
-        The calendar-toggle button is the *only* element wrapped by
-        <Popup>'s own trigger -- not the whole Group (which would also
-        wrap the DateInput's editable segments). Radix's PopoverPrimitive
-        .Trigger attaches its own click handling to whatever `trigger`
-        element it's given; wrapping the segments too would mean clicking
-        into a segment to type a value could also toggle the calendar
-        open/closed, which isn't how a date picker is supposed to behave --
-        typing edits the value, only the button opens the calendar.
-
-        isOpen/onOpenChange are wired directly to DatePickerState, not
-        Popup's own internal open state -- this is the actual Shell/
-        Content decoupling: React Aria's hook logic still owns whether the
-        picker *should* be open (triggered by this button's press, or by
-        keyboard interaction with the field), but Popup -- not React
-        Aria's own Popover -- is the one thing that ever mounts a portal,
-        traps focus, or handles Escape for the calendar surface.
-      */}
-      <Popup
-        trigger={
-          <button type="button" aria-label="Open calendar" style={{ all: 'unset', cursor: 'pointer', color: 'var(--ai-text-secondary, #6b7280)', display: 'flex' }}>
-            📅
-          </button>
-        }
-        isOpen={state.isOpen}
-        onOpenChange={open => state.setOpen(open)}
-        zIndex={Z_INDEX.DROPDOWN}
-      >
-        <Calendar
-          value={(state.dateValue as CalendarDate | null) ?? undefined}
-          onChange={date => {
-            state.setDateValue(date);
-            // No dependency on React Aria's own Popover/shouldCloseOnSelect
-            // machinery, since that's exactly the piece this component
-            // doesn't use -- closing on select is this component's own,
-            // explicit call, matching that same default behavior.
-            state.setOpen(false);
-          }}
-          overrides={overrides}
-          size={size}
-        />
-      </Popup>
-    </Group>
+      <Calendar
+        value={(state.dateValue as CalendarDate | null) ?? undefined}
+        onChange={date => {
+          state.setDateValue(date);
+          // No dependency on React Aria's own Popover/shouldCloseOnSelect
+          // machinery, since that's exactly the piece this component
+          // doesn't use -- closing on select is this component's own,
+          // explicit call, matching that same default behavior.
+          state.setOpen(false);
+        }}
+        overrides={overrides}
+        size={size}
+      />
+    </Popup>
   );
 };
 
@@ -168,13 +148,15 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   onChange,
   minValue,
   maxValue,
-  isDisabled = false,
+  isDisabled: isDisabledProp = false,
   locale = 'en-US',
   overrides,
   size = 'md',
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  squareCorners,
 }) => {
+  const isDisabled = useFieldsetDisabled(isDisabledProp);
   const fieldCtx = useContext(FieldContext);
   const fieldName = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
@@ -210,14 +192,16 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         shouldCloseOnSelect={false}
         aria-label={!label ? ariaLabel : undefined}
         aria-labelledby={!label ? ariaLabelledBy : undefined}
-        className="ai-focus-ring"
+        // Dimmed like the other disabled controls; React Aria marks it
+        // disabled but draws nothing for it.
+        style={isDisabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
       >
         {label && (
           <Label style={{ display: 'block', fontSize: CONTROL_FONT_SIZE_VAR[size], fontWeight: 'var(--ai-font-weight-semibold, 600)', marginBottom: '0.375rem', color: 'var(--ai-text-primary, #111827)' }}>
             {label}
           </Label>
         )}
-        <DatePickerFieldAndCalendar overrides={overrides} size={size} />
+        <DatePickerFieldAndCalendar overrides={overrides} size={size} squareCorners={squareCorners} />
       </AriaDatePicker>
     </I18nProvider>
   );

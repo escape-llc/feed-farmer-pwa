@@ -1,19 +1,22 @@
 'use client';
 
+// Modal on Base UI's Dialog (#670, #696), a drop-in for the earlier
+// implementation (same export, props and slots). Portal container, stacked z-index,
+// CSP nonce and enter/exit keyframes come from the shared overlay layer
+// (./baseui/overlayLayer). Base UI supplies the focus trap, scroll lock,
+// outside-press and Escape dismissal, and native nested-dialog handling.
 import React, { useState, type ReactNode, type ReactElement } from 'react';
-import { Dialog as DialogPrimitive } from 'radix-ui';
+import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
-import { useStackedZIndex } from '../../theme/zIndexStack';
+import { useOwnEmit } from '../../eventBus/useOwnEmit';
 import { AIErrorBoundary } from '../ErrorBoundary/AIErrorBoundary';
 import { useStableId } from '../shared/useStableId';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
-import { useInjectInteractionStyles } from '../../theme/interactionStyles';
-import { useTargetDocument } from '../../theme/targetDocumentContext';
 import { type SubthemeName } from '../../theme/subtheme';
-import { TRIGGER_WRAPPER_STYLE } from '../../theme/triggerWrapperStyle';
 import { Button } from '../Form/FormComponents';
 import { ModalThemeSlice, type ModalSliceState } from './ModalSlice';
+import { OverlayCSP, triggerRenderProps, useOverlayAnimations, useOverlayLayer } from './baseui/overlayLayer';
 
 /**
  * Props for the `<Modal>` dialog overlay.
@@ -25,7 +28,10 @@ import { ModalThemeSlice, type ModalSliceState } from './ModalSlice';
 export interface ModalProps {
   /** Unique identifier used for event bus targeting (e.g. `aiBus.openModal('my-modal')`). Auto-generated if omitted. */
   id?: string;
-  /** Element that opens the modal on click. Rendered inline; the modal manages open/close state automatically. */
+  /**
+   * Element that opens the modal on click; the modal manages open/close state automatically.
+   * It becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, and focus returns to it on close, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role="button"` and keyboard activation automatically.
+   */
   trigger?: ReactElement;
   /** Slot content rendered inside the modal dialog. Use `Modal.Header`, `Modal.Body`, etc. */
   children: ReactNode;
@@ -66,7 +72,7 @@ export interface ModalProps {
    * your `Modal.Header` text) for a meaningful announcement.
    * @default 'Dialog'
    */
-  ariaLabel?: string;
+  'aria-label'?: string;
   /**
    * `'center'` (default) vertically centers the dialog, the standard
    * confirm/form-dialog placement. `'top'` anchors it near the top of the
@@ -101,115 +107,94 @@ export const Modal: React.FC<ModalProps> & {
   width = '31.25rem',
   height,
   zIndex: zIndexProp,
-  ariaLabel = 'Dialog',
+  'aria-label': ariaLabel = 'Dialog',
   align = 'center',
   overrides,
 }) => {
   const id = useStableId(propId, 'modal');
-  const targetDocument = useTargetDocument();
-  // Always called, regardless of whether zIndexProp ends up used (rules of
-  // hooks) -- see useStackedZIndex's own doc comment for why this is what
-  // makes nested/simultaneous Modals stack deterministically instead of by
-  // portal-order coincidence.
-  const autoZIndex = useStackedZIndex('MODAL');
-  const zIndex = zIndexProp ?? autoZIndex;
-  useInjectInteractionStyles();
+  const { container, zIndex } = useOverlayLayer('MODAL', zIndexProp);
+  useOverlayAnimations('toolcrib-modal-animations-baseui', [
+    { className: 'ai-modal-overlay', enter: 'ai-fade-in', exit: 'ai-fade-out' },
+    { className: 'ai-modal-content', enter: 'ai-scale-in', exit: 'ai-scale-out' },
+  ]);
   const { vars: modalVars } = useSliceOverrides(ModalThemeSlice, overrides);
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
 
+  // Own emissions are marked so the listeners below skip their echo (#705).
+  const { emitOwn, isOwnEcho } = useOwnEmit();
   const handleOpenChange = (open: boolean, fromBus = false) => {
-    if (externalIsOpen === undefined) {
-      setInternalIsOpen(open);
-    }
-    if (onOpenChange) {
-      onOpenChange(open);
-    }
-    if (!fromBus) {
-      if (open) {
-        aiBus.emit('modal:shown', { id });
-      } else {
-        aiBus.emit('modal:hidden', { id });
-      }
-    }
+    if (externalIsOpen === undefined) setInternalIsOpen(open);
+    onOpenChange?.(open);
+    if (!fromBus) emitOwn(() => aiBus.emit(open ? 'modal:shown' : 'modal:hidden', { id }));
   };
-
   useAIEvent('modal:shown', e => {
-    if (e.id === id && !isOpen) handleOpenChange(true, true);
+    if (e.id === id && !isOpen && !isOwnEcho()) handleOpenChange(true, true);
   });
-
   useAIEvent('modal:hidden', e => {
-    if (e.id === id && isOpen) handleOpenChange(false, true);
+    if (e.id === id && isOpen && !isOwnEcho()) handleOpenChange(false, true);
   });
 
   return (
-    <DialogPrimitive.Root open={isOpen} onOpenChange={open => handleOpenChange(open)}>
-      {trigger && (
-        <DialogPrimitive.Trigger asChild>
-          {/* aria-haspopup/aria-expanded explicitly nulled -- see
-              Popup.tsx's identical wrapper for the full reasoning
-              (role="button" here traded aria-allowed-attr for
-              nested-interactive, since the real trigger nested inside is
-              already its own separately focusable interactive element). */}
-          <div aria-haspopup={undefined} aria-expanded={undefined} style={TRIGGER_WRAPPER_STYLE}>{trigger}</div>
-        </DialogPrimitive.Trigger>
-      )}
-
-      <DialogPrimitive.Portal container={targetDocument?.body}>
-        <DialogPrimitive.Overlay
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: zIndex,
-            background: 'var(--ai-modal-overlay-bg, rgba(0, 0, 0, 0.5))',
-            backdropFilter: 'blur(var(--ai-modal-backdrop-blur, 0.1875rem))',
-            display: 'flex',
-            alignItems: align === 'top' ? 'flex-start' : 'center',
-            justifyContent: 'center',
-            padding: 'var(--ai-padding-lg, 1.25rem)',
-            paddingTop: align === 'top' ? '10vh' : 'var(--ai-padding-lg, 1.25rem)',
-            animation: 'ai-fade-in var(--ai-transition-duration-normal, 0.2s) var(--ai-transition-easing, ease)',
-            ...modalVars,
-          }}
-        >
-          <DialogPrimitive.Content
-            aria-describedby={undefined}
-            aria-modal="true"
-            data-testid="modal-container"
-            className="ai-focus-ring"
+    <OverlayCSP>
+      <BaseDialog.Root open={isOpen} onOpenChange={open => handleOpenChange(open)}>
+        {/* render, not a wrapper div: the dialog's trigger semantics
+            (aria-haspopup/expanded, focus return on close) land on the
+            consumer's own element. */}
+        {trigger && <BaseDialog.Trigger {...triggerRenderProps(trigger)} />}
+        <BaseDialog.Portal container={container}>
+          <BaseDialog.Backdrop
+            className="ai-modal-overlay"
             style={{
-              background: 'var(--ai-bg-surface, #ffffff)',
-              borderRadius: 'var(--ai-radius-lg, 0.75rem)',
-              border: '0.0625rem solid var(--ai-border, #e5e7eb)',
-              boxShadow: 'var(--ai-shadow-lg, 0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3))',
-              width,
-              height,
-              maxWidth: '90vw',
-              maxHeight: '90vh',
+              position: 'fixed',
+              inset: 0,
+              zIndex,
+              background: 'var(--ai-modal-overlay-bg, rgba(0, 0, 0, 0.5))',
+              backdropFilter: 'blur(var(--ai-modal-backdrop-blur, 0.1875rem))',
+              ...modalVars,
+            }}
+          />
+          <BaseDialog.Viewport
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex,
               display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              position: 'relative',
-              zIndex: zIndex + 1,
-              outline: 'none',
-              animation: 'ai-scale-in var(--ai-transition-duration-normal, 0.2s) var(--ai-transition-easing, ease)',
-              // A self-contained dialog panel: its own children's layout/
-              // paint never needs to affect the rest of the page, and
-              // nothing inside relies on escaping this box (any further
-              // dropdown/tooltip opened from inside a Modal renders through
-              // its own Radix Portal, off document.body — unaffected by
-              // this being a new containing block).
-              contain: 'content',
+              alignItems: align === 'top' ? 'flex-start' : 'center',
+              justifyContent: 'center',
+              padding: 'var(--ai-padding-lg, 1.25rem)',
+              paddingTop: align === 'top' ? '10vh' : 'var(--ai-padding-lg, 1.25rem)',
             }}
           >
-            <DialogPrimitive.Title style={{ display: 'none' }}>{ariaLabel}</DialogPrimitive.Title>
-            <AIErrorBoundary componentName="Modal">
-              {children}
-            </AIErrorBoundary>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Overlay>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+            <BaseDialog.Popup
+              aria-modal="true"
+              data-testid="modal-container"
+              className="ai-focus-ring ai-modal-content"
+              style={{
+                background: 'var(--ai-bg-surface, #ffffff)',
+                borderRadius: 'var(--ai-radius-lg, 0.75rem)',
+                border: '0.0625rem solid var(--ai-border, #e5e7eb)',
+                boxShadow: 'var(--ai-shadow-lg, 0 1.5625rem 3.125rem -0.75rem rgba(0, 0, 0, 0.3))',
+                width,
+                height,
+                maxWidth: '90vw',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                position: 'relative',
+                zIndex: zIndex + 1,
+                outline: 'none',
+                contain: 'content',
+              }}
+            >
+              <BaseDialog.Title style={{ display: 'none' }}>{ariaLabel}</BaseDialog.Title>
+              <AIErrorBoundary componentName="Modal">{children}</AIErrorBoundary>
+            </BaseDialog.Popup>
+          </BaseDialog.Viewport>
+        </BaseDialog.Portal>
+      </BaseDialog.Root>
+    </OverlayCSP>
   );
 };
 
@@ -270,13 +255,9 @@ Modal.Actions = ({ children }) => (
   </div>
 );
 
-Modal.CloseButton = ({ children = 'Close' }) => {
-  return (
-    <DialogPrimitive.Close asChild>
-      <Button variant="outline">{children}</Button>
-    </DialogPrimitive.Close>
-  );
-};
+Modal.CloseButton = ({ children = 'Close' }) => (
+  <BaseDialog.Close render={<Button variant="outline" />}>{children}</BaseDialog.Close>
+);
 
 Modal.Header.displayName = 'Modal.Header';
 Modal.Body.displayName = 'Modal.Body';

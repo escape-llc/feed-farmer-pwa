@@ -2,13 +2,14 @@
 
 import React, { type ReactElement, type ReactNode, type RefObject, cloneElement, isValidElement, useEffect, useState } from 'react';
 import { type SquareCornerOption, resolveSquareCorners } from '../components/Card/Card';
+import { useMutationObserver } from '../observer/useMutationObserver';
 
 /** @barrelExport */
 export type PopoverSide = 'top' | 'right' | 'bottom' | 'left';
 /**
  * `'stretch'` is for a popup sized to match the trigger exactly on the
  * cross axis (e.g. `Combobox`'s listbox, `width:
- * var(--radix-popover-trigger-width)`) — the whole connecting edge meets
+ * var(--anchor-width)`, set by Base UI's Positioner) — the whole connecting edge meets
  * the trigger, not just one corner, so *both* corners on that edge square
  * off. `'center'` still squares nothing (no single connecting corner).
  * @barrelExport
@@ -80,7 +81,7 @@ function setRadiusCorner(style: React.CSSProperties, corner: Corner, value: 0 | 
 
 /** @barrelExport */
 export interface CornerSquaringResult {
-  /** Pass straight through to the Radix `*.Content`'s own `side`/`align` props — kept here so a caller's `side`/`align` state and its corner-squaring can't drift apart. */
+  /** Pass straight through to the popup's own `side`/`align` props — kept here so a caller's `side`/`align` state and its corner-squaring can't drift apart. */
   side: PopoverSide;
   align: PopoverAlign;
   /** A slight negative overlap (not just 0) reads as one continuous seam rather than two adjacent flat edges — the value every `sideOffset` in the toolkit that uses this hook shares. */
@@ -94,16 +95,16 @@ export interface CornerSquaringResult {
 }
 
 /**
- * Radix's Popper-based `*.Content` (Popover, DropdownMenu) auto-flips to
+ * A Popper-positioned popup (Popover, DropdownMenu) auto-flips to
  * the opposite side on collision by default (`avoidCollisions`, on unless
  * a caller explicitly disables it) — e.g. a `side="bottom"` popup near the
  * bottom of the viewport actually renders above its trigger instead.
- * Radix reflects whichever side it actually chose via a `data-side`
+ * The popup reflects whichever side it actually chose via a `data-side`
  * attribute on the Content element itself, but has no callback for when
  * that changes, so a `MutationObserver` on the attribute is the only way
  * to learn about a flip. Every caller of `computeCornerSquaring` needs the
  * *actual* side, not the merely-requested one — squaring the corner for
- * "bottom" while Radix silently flipped to "top" squares the wrong edge
+ * "bottom" while the popup silently flipped to "top" squares the wrong edge
  * entirely, reported directly via a real screenshot of exactly that.
  * Falls back to `requestedSide` before the content has mounted/measured
  * (or while closed), so a caller can use the return value unconditionally
@@ -121,7 +122,7 @@ export function useActualPopoverSide(
   // isOpen/requestedSide change while closed, avoiding an extra
   // render-then-effect-then-rerender cascade for what's really just a
   // "sync state to a prop" concern. The *open* case below still
-  // genuinely needs an effect (subscribing to Radix's own data-side
+  // genuinely needs an effect (subscribing to the popup's own data-side
   // attribute via MutationObserver, a real external system) -- its own
   // setActualSide calls all happen inside that subscription's callback
   // (readSide, invoked from a MutationObserver/rAF callback), not
@@ -134,56 +135,73 @@ export function useActualPopoverSide(
     if (!isOpen) setActualSide(requestedSide);
   }
 
+  // Reads whatever `data-side` value already exists the moment the ref
+  // actually attaches -- `useMutationObserver` below only ever reports
+  // FUTURE attribute changes, not a value already present at attach
+  // time, so this initial read is still needed alongside it. Same
+  // bounded requestAnimationFrame retry as before (and the same one
+  // `useMutationObserver`'s own internal setup uses): the popup is
+  // Presence-mounted, which can land one render tick after `isOpen`
+  // flips true, so `contentRef.current` isn't guaranteed to be populated
+  // yet on this effect's first run (confirmed directly: it was reliably
+  // still null here, silently no-op'ing the whole hook, before this
+  // retry existed).
   useEffect(() => {
     if (!isOpen) return;
 
-    let observer: MutationObserver | undefined;
-    let rafId: number | undefined;
     let cancelled = false;
+    let rafId: number | undefined;
+    let attempts = 0;
+    const MAX_ATTACH_RETRY_FRAMES = 10;
 
-    // `data-side` isn't guaranteed to land on the ref'd node itself --
-    // Radix's actual Popper positioning wrapper carrying it can be a
-    // different element than whichever one a caller's own `ref` forwards
-    // to. Checking both self and descendant, and observing with
-    // `subtree: true`, means this works regardless of exactly which node
-    // in Content's own internal structure ends up owning the attribute.
-    const attach = (node: HTMLElement) => {
-      const readSide = () => {
-        const target = node.hasAttribute('data-side') ? node : node.querySelector('[data-side]');
-        const attr = target?.getAttribute('data-side');
-        if (attr === 'top' || attr === 'right' || attr === 'bottom' || attr === 'left') {
-          setActualSide(attr);
-        }
-      };
-      readSide();
-      observer = new MutationObserver(readSide);
-      observer.observe(node, { attributes: true, attributeFilter: ['data-side'], subtree: true });
-    };
-
-    // Radix's Content is Presence-mounted, which can land one render tick
-    // after `isOpen` flips true -- `contentRef.current` isn't guaranteed
-    // to be populated yet in this same effect run (confirmed directly: it
-    // was reliably still null here, silently no-op'ing the whole hook).
-    // This effect only reruns when `isOpen` itself changes, so missing
-    // that window meant never picking up the ref at all. Polling via rAF
-    // for a few frames catches it as soon as it actually mounts.
-    const waitForNode = () => {
+    const tryRead = () => {
       if (cancelled) return;
       const node = contentRef.current;
-      if (node) {
-        attach(node);
-      } else {
-        rafId = requestAnimationFrame(waitForNode);
+      if (!node) {
+        if (attempts++ < MAX_ATTACH_RETRY_FRAMES) rafId = requestAnimationFrame(tryRead);
+        return;
+      }
+      // `data-side` isn't guaranteed to land on the ref'd node itself --
+      // The actual Popper positioning wrapper carrying it can be a
+      // different element than whichever one a caller's own `ref`
+      // forwards to. Checking both self and descendant covers this
+      // regardless of exactly which node in Content's own internal
+      // structure ends up owning the attribute.
+      const target = node.hasAttribute('data-side') ? node : node.querySelector('[data-side]');
+      const attr = target?.getAttribute('data-side');
+      if (attr === 'top' || attr === 'right' || attr === 'bottom' || attr === 'left') {
+        setActualSide(attr);
       }
     };
-    waitForNode();
+    tryRead();
 
     return () => {
       cancelled = true;
       if (rafId !== undefined) cancelAnimationFrame(rafId);
-      observer?.disconnect();
     };
-  }, [contentRef, requestedSide, isOpen]);
+  }, [contentRef, isOpen]);
+
+  // Issue #515: routed through the centralized MutationObserver
+  // (observerManager/useMutationObserver) rather than this hook creating
+  // its own dedicated MutationObserver instance, the one real pre-
+  // existing ad hoc case that ticket found and closed. `event.target` is
+  // already the exact node whose `data-side` attribute changed (the
+  // manager's own `attributeFilter: ['data-side']` guarantees that), so
+  // no `querySelector` fallback is needed here the way the initial-read
+  // effect above still needs one -- unlike an initial read, a mutation
+  // record always tells you precisely which node changed.
+  useMutationObserver(
+    contentRef,
+    { attributes: true, attributeFilter: ['data-side'], subtree: true },
+    event => {
+      const target = event.target as Element;
+      const attr = target.getAttribute?.('data-side');
+      if (attr === 'top' || attr === 'right' || attr === 'bottom' || attr === 'left') {
+        setActualSide(attr);
+      }
+    },
+    { enabled: isOpen }
+  );
 
   return actualSide;
 }
@@ -191,12 +209,12 @@ export function useActualPopoverSide(
 /**
  * The one place "the look" — a popup that reads as directly attached to
  * its trigger rather than a floating chip — gets computed, for any
- * Radix Popper-based trigger+popup pair (`Popup`, `Combobox`, `DropdownMenu`
+ * Popper-based trigger+popup pair (`Popup`, `Combobox`, `DropdownMenu`
  * all call this). Pure function: feed it where the popup is anchored, get
  * back everything needed to wire both sides up. `isOpen` only gates the
  * *trigger's* squared corner (the trigger is always mounted, open or
  * closed, and should only look "attached" while actually attached) — the
- * popup content itself is conditionally mounted by Radix already, so its
+ * popup content itself is conditionally mounted already, so its
  * own corner style doesn't need the same gate.
  */
 export function computeCornerSquaring(
@@ -317,4 +335,50 @@ export function renderTriggerWithCornerSquaring(
           transition: 'border-radius 0.15s ease',
         },
       });
+}
+
+/**
+ * Applies a `CornerSquaringResult`'s trigger-side corner to a `Popup`
+ * `anchor` element (issue #502) -- deliberately always the plain-DOM-
+ * element style-patch branch, never `renderTriggerWithCornerSquaring`'s
+ * `isToolcribComponent` dispatch. That dispatch decides "toolcrib
+ * component with a real `squareCorners` prop" purely from `typeof
+ * element.type !== 'string'` -- true for ANY non-DOM-string element type,
+ * which includes a third-party headless component (react-aria-components'
+ * `Group`, the real anchor DatePicker passes) that has no `squareCorners`
+ * prop at all. Confirmed directly (not assumed) that this would misfire:
+ * `Group` doesn't understand `squareCorners`, so cloning it in would just
+ * add an unrecognized prop with zero visual effect, silently dropping the
+ * corner-squaring anchor mode exists to provide. Confirmed separately
+ * (reading react-aria-components' own `Group`/`useRenderProps` source)
+ * that a plain `style` clone DOES work correctly here -- `Group` reads
+ * `style` straight from its own props and applies it to the real
+ * underlying `<div>` with no interference, the same as any plain DOM
+ * element.
+ *
+ * This is why `PopupProps.anchor`'s own doc comment documents `anchor` as
+ * required to be a plain-DOM/style-forwarding element, never a real
+ * toolcrib component -- confirmed directly (not just reasoned about) that
+ * a toolcrib component wouldn't work here either, just differently than
+ * `Group` would have: every toolcrib component strips `style`/
+ * `className` outright (`StyleFree<...>`, `ai-docs/CORE.md`'s own "no
+ * component accepts style/className" rule), so a `style` clone onto one
+ * would be silently a complete no-op, not even landing as an unrecognized
+ * prop the way it would on `Group`. Supporting a toolcrib-component
+ * anchor for real would need the `isToolcribComponent` dispatch back --
+ * deliberately not built here, since the only real consumer (DatePicker's
+ * `Group`) never needs it and a heuristic dispatch is exactly the kind of
+ * unverified-until-it-breaks code this function's own existence was
+ * written to avoid repeating.
+ */
+export function renderAnchorWithCornerSquaring(anchor: ReactNode, squaring: CornerSquaringResult): ReactNode {
+  if (!isValidElement(anchor)) return anchor;
+  const element = anchor as ReactElement<any>;
+  return cloneElement(element, {
+    style: {
+      ...(element.props as any).style,
+      ...squaring.triggerCornerStyle,
+      transition: 'border-radius 0.15s ease',
+    },
+  });
 }

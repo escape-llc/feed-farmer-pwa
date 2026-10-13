@@ -11,8 +11,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@internationalized/date": "^3.12.3",
-    "@radix-ui/react-presence": "^1.1.10",
     "@visx/axis": "^4.0.0",
     "@visx/curve": "^4.0.0",
     "@visx/event": "^4.0.0",
@@ -20,12 +20,11 @@
     "@visx/scale": "^4.0.0",
     "@visx/shape": "^4.0.0",
     "@visx/tooltip": "^4.0.0",
-    "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
     "dexie": "^4.4.5",
     "dompurify": "^3.4.14",
     "embla-carousel-react": "^8.6.0",
-    "radix-ui": "^1.0.0",
+    "lucide-react": "^1.54.0",
     "react": "^19.2.8",
     "react-aria-components": "^1.20.0",
     "react-dom": "^19.2.8",

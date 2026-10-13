@@ -3,13 +3,12 @@
 import React, { type ReactNode, useMemo, useState, useRef } from 'react';
 import { useTheme } from '../../theme/themeContext';
 import { type HarmonyMode } from '../../theme/harmonies';
+import { hsvToCSS } from '../../theme/hsv';
 import { type PaddingMode } from '../../theme/padding';
 import { type MarginMode } from '../../theme/margin';
 import { type CornerRadiusMode } from '../../theme/radius';
 import { type ShadowMode } from '../../theme/shadow';
 import { isResponsiveConfig, resolveBaseMode } from '../../theme/responsive';
-import { AnimationThemeSlice } from '../../theme/animation';
-import { TypographyThemeSlice } from '../../theme/typography';
 import { globalThemeSliceRegistry, type ThemeSlice, type ThemeSliceCategory } from '../../theme/slice';
 import { type ToolcribSliceStateMap } from '../../theme/sliceStateMap';
 import { captureThemeSnapshot, applyThemeSnapshot } from '../../theme/themePersistence';
@@ -26,6 +25,7 @@ import { Popup } from '../Overlay/Popup';
 import { type SquareCornerOption } from '../Card/Card';
 import { Grid } from '../Layout/Grid';
 import { FieldRow } from './ThemeEditorFieldRow';
+import { SLICE_EDITOR_CONTROLS } from './sliceEditorControls';
 
 /** Per-command switches for the Save & Load Themes header toolbar — see `ThemeEditorProps.themeManagement`. */
 export interface ThemeManagementOptions {
@@ -85,11 +85,12 @@ export interface ThemeEditorProps {
 //    carve-out for why these were never part of the 29-slice problem this
 //    whole effort addresses.
 //  - animation/typography: real sliceStates slices (and each has a real
-//    renderEditorControl on its own slice object, same as everything else),
-//    kept in their current curated position inside "Global" for UX rather
-//    than reshuffled into "Layout Primitives" (their own declared
-//    category) — the Global section just calls their renderEditorControl
-//    directly instead of re-inlining the JSX, so there's no duplication.
+//    control in SLICE_EDITOR_CONTROLS, same as everything else), kept in
+//    their current curated position inside "Global" for UX rather than
+//    reshuffled into "Layout Primitives" (their own declared category) —
+//    the Global section just calls SLICE_EDITOR_CONTROLS.animation/
+//    .typography directly instead of re-inlining the JSX, so there's no
+//    duplication.
 const GLOBAL_ONLY_SLICE_IDS = new Set(['padding', 'margin', 'radius', 'shadow', 'animation', 'typography']);
 
 /**
@@ -137,13 +138,13 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
   // Every registered slice except the 6 handled by hand-written JSX in the
   // Global section above, grouped by category and sorted alphabetically by
   // name within each — fully self-registering: a new component's own slice
-  // file is the only thing that needs touching (its own
-  // `renderEditorControl` + declaration-merge registration), never this
-  // file. Recomputed only when the registry's contents change, which is
-  // never during a single session (every slice registers once, at module
-  // load, in themeContext.tsx) — but the registry itself isn't a stable
-  // reference react can key off, so this intentionally has no dependency
-  // array beyond mount.
+  // file is the only thing that needs touching (its own state/CSS-variable
+  // registration, plus a matching entry in sliceEditorControls.tsx), never
+  // this file. Recomputed only when the registry's contents change, which
+  // is never during a single session (every slice registers once, at
+  // module load, in themeContext.tsx) — but the registry itself isn't a
+  // stable reference react can key off, so this intentionally has no
+  // dependency array beyond mount.
   const slicesByCategory = useMemo(() => {
     const grouped: Record<ThemeSliceCategory, ThemeSlice[]> = {
       'Layout Primitives': [],
@@ -153,7 +154,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
       'Form Controls': [],
     };
     for (const slice of globalThemeSliceRegistry.getAll()) {
-      if (GLOBAL_ONLY_SLICE_IDS.has(slice.id) || !slice.renderEditorControl) continue;
+      if (GLOBAL_ONLY_SLICE_IDS.has(slice.id) || !SLICE_EDITOR_CONTROLS[slice.id]) continue;
       grouped[slice.category].push(slice);
     }
     for (const category of Object.keys(grouped) as ThemeSliceCategory[]) {
@@ -177,7 +178,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
       items={slicesByCategory[category].map(slice => ({
         value: slice.id,
         title: slice.name,
-        content: slice.renderEditorControl!(
+        content: SLICE_EDITOR_CONTROLS[slice.id]!(
           sliceStates[slice.id as keyof ToolcribSliceStateMap] ?? slice.defaultState,
           patch => setSliceState(slice.id as keyof ToolcribSliceStateMap, patch)
         ),
@@ -285,7 +286,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={360}
             value={parameters.baseColor.h}
             onChange={val => setBaseColor({ ...parameters.baseColor, h: val })}
-            ariaLabel="Hue (H)"
+            aria-label="Hue (H)"
           />
         </div>
 
@@ -300,7 +301,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={100}
             value={parameters.baseColor.s}
             onChange={val => setBaseColor({ ...parameters.baseColor, s: val })}
-            ariaLabel="Saturation (S)"
+            aria-label="Saturation (S)"
           />
         </div>
 
@@ -315,7 +316,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             max={100}
             value={parameters.baseColor.v}
             onChange={val => setBaseColor({ ...parameters.baseColor, v: val })}
-            ariaLabel="Brightness (V)"
+            aria-label="Brightness (V)"
           />
         </div>
 
@@ -339,7 +340,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             step={0.05}
             value={parameters.darkenLightenFactor}
             onChange={val => setDarkenLightenFactor(val)}
-            ariaLabel="Darken / Lighten Factor"
+            aria-label="Darken / Lighten Factor"
           />
         </div>
 
@@ -362,7 +363,7 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
             step={0.05}
             value={parameters.saturationFactor}
             onChange={val => setSaturationFactor(val)}
-            ariaLabel="Saturation Factor"
+            aria-label="Saturation Factor"
           />
         </div>
       </div>
@@ -422,16 +423,16 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
     </div>
   );
 
-  // Thin wrappers delegating to each slice's own renderEditorControl,
-  // instead of re-inlining their JSX here — animation/typography stay
-  // hand-placed inside "Global" (see GLOBAL_ONLY_SLICE_IDS's own comment
-  // for why), but no longer duplicate their control markup to do it.
-  const animationContent = AnimationThemeSlice.renderEditorControl!(
+  // Thin wrappers delegating to SLICE_EDITOR_CONTROLS, instead of
+  // re-inlining their JSX here — animation/typography stay hand-placed
+  // inside "Global" (see GLOBAL_ONLY_SLICE_IDS's own comment for why), but
+  // no longer duplicate their control markup to do it.
+  const animationContent = SLICE_EDITOR_CONTROLS.animation!(
     sliceStates.animation,
     patch => setSliceState('animation', patch)
   );
 
-  const typographyContent = TypographyThemeSlice.renderEditorControl!(
+  const typographyContent = SLICE_EDITOR_CONTROLS.typography!(
     sliceStates.typography,
     patch => setSliceState('typography', patch)
   );
@@ -463,8 +464,67 @@ export const ThemeEditor: React.FC<ThemeEditorProps> = ({ themeManagement = true
           max={90}
           value={parameters.hueSpread}
           onChange={val => setHueSpread(val)}
-          ariaLabel="Hue Spread Angle"
+          aria-label="Hue Spread Angle"
         />
+      </div>
+
+      {/* Harmony Palette Swatches (issue #376) -- the most direct way to
+          actually SEE the 4 hue-derived roles this section's own controls
+          above compute, since most of them (secondary/accent/quaternary --
+          see issue #375's own investigation) have very little surface
+          elsewhere in the toolkit to visibly manifest on: --ai-color-primary
+          is referenced by ~26 component files, --ai-color-secondary by 4,
+          --ai-color-accent by 1, and --ai-color-quaternary by zero --
+          correctly computed here, just rarely consumed downstream.
+          Mirrors subthemeContent's own tile-grid pattern below for visual
+          consistency, but each tile's own resolved hsl() string is also
+          shown (theme.palette holds the real HSVColor objects, not just
+          the CSS variable names) -- letting a HarmonyMode/Hue-Spread change
+          be visually confirmed as producing 4 genuinely DISTINCT colors,
+          not just an abstract expectation. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ fontSize: '0.75rem', color: 'var(--ai-text-secondary, #6b7280)' }}>
+          Harmony palette preview — the 4 hue-derived color roles the controls above compute.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+          {(
+            [
+              { role: 'primary', label: 'Primary', main: theme.palette.primary },
+              { role: 'secondary', label: 'Secondary', main: theme.palette.secondary },
+              { role: 'accent', label: 'Accent', main: theme.palette.accent },
+              { role: 'quaternary', label: 'Quaternary', main: theme.palette.quaternary },
+            ] as const
+          ).map(({ role, label, main }) => (
+            <div
+              key={role}
+              data-testid={`harmony-swatch-${role}`}
+              style={{
+                padding: 'var(--ai-padding-md, 0.5rem)',
+                background: `var(--ai-color-${role})`,
+                color: `var(--ai-color-${role}-text)`,
+                borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-semibold, 600)' }}>{label}</div>
+              {/* Reads the resolved HSVColor object directly (not the CSS
+                  variable), so this stays accurate even where hsvToCSS's
+                  own alpha default or rounding differs from what a
+                  getComputedStyle read of the live variable would show.
+                  No opacity here (Gemini-caught, real) -- this text sits on
+                  a dynamic, user-configurable background using the SAME
+                  `--ai-color-{role}-text` variable as the label above,
+                  already computed via pickReadableTextColor specifically to
+                  guarantee contrast against that exact background; blending
+                  it toward its own background via opacity would silently
+                  undercut that guarantee for some theme configurations even
+                  though it happened to still read fine for the one base
+                  color this was visually spot-checked against. Font size
+                  alone differentiates it from the label now. */}
+              <div style={{ fontSize: '0.6875rem' }}>{hsvToCSS(main)}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

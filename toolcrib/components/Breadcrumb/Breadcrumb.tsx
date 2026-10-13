@@ -4,13 +4,14 @@ import React, { type ReactNode, type ReactElement, useRef, useState, useEffect }
 import { Breadcrumbs as AriaBreadcrumbs, Breadcrumb as AriaBreadcrumb, Link as AriaLink } from 'react-aria-components/Breadcrumbs';
 import { useAdaptiveSize } from '../../observer/useAdaptiveSize';
 import { DropdownMenu } from '../DropdownMenu/DropdownMenu';
+import { aiBus } from '../../eventBus/eventBus';
 import { getSparseVariables } from '../../theme/slice';
 import { BreadcrumbThemeSlice, type BreadcrumbSliceState } from './BreadcrumbSlice';
 
 /** Props for the `<Breadcrumb.Item>` slot. */
 export interface BreadcrumbItemProps {
   children: ReactNode;
-  /** Href for this crumb's link. Omit for the current page (the last item is automatically non-interactive regardless). */
+  /** Href for this crumb's link. Omit for the current page (the last item is automatically non-interactive regardless), or for a grouping crumb with no page of its own: with neither href nor onClick, a middle crumb renders as plain text. */
   href?: string;
   /** Click handler, for a JS-driven crumb instead of a real link. */
   onClick?: () => void;
@@ -116,7 +117,10 @@ export const Breadcrumb: React.FC<BreadcrumbProps> & {
             items={collapsed.map(c => ({
               value: c.key,
               label: c.element.props.children,
-              onClick: c.element.props.onClick,
+              // A crumb with only an href would otherwise be an inert menu item.
+              onClick:
+                c.element.props.onClick ??
+                (c.element.props.href ? () => aiBus.navigate(c.element.props.href!) : undefined),
             }))}
           />
         ),
@@ -126,9 +130,13 @@ export const Breadcrumb: React.FC<BreadcrumbProps> & {
       key: crumb.key,
       isLast: crumb.isLast,
       content: crumb.isLast ? (
-        <span style={{ color: 'var(--ai-text-primary, #111827)', fontWeight: 'var(--ai-font-weight-semibold, 600)' }}>
+        <span aria-current="page" style={{ color: 'var(--ai-text-primary, #111827)', fontWeight: 'var(--ai-font-weight-semibold, 600)' }}>
           {crumb.element.props.children}
         </span>
+      ) : !crumb.element.props.href && !crumb.element.props.onClick ? (
+        // A grouping crumb with nowhere to go (a category, a section name):
+        // plain text, not a link that does nothing when clicked.
+        <span style={{ color: 'var(--ai-text-secondary, #6b7280)' }}>{crumb.element.props.children}</span>
       ) : (
         <AriaLink
           href={crumb.element.props.href}

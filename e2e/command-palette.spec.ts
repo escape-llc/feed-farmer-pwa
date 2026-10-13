@@ -12,7 +12,7 @@ test('Ctrl+K opens the command palette with Navigate and Actions groups', async 
 test('selecting "Dashboard" from the command palette navigates and closes it', async ({ page }) => {
   await page.goto('/');
   await page.keyboard.press('Control+k');
-  await page.getByRole('option', { name: /Dashboard/ }).click();
+  await page.getByRole('menuitem', { name: /Dashboard/ }).click();
   await expect(page.getByPlaceholder('Jump to a feed or run a command…')).not.toBeVisible();
   await expect(page.getByRole('heading', { name: '🌾 Dashboard' })).toBeVisible();
 });

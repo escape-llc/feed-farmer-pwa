@@ -1,7 +1,7 @@
 'use client';
 
 import React, { type ReactNode, useState, useRef, useEffect } from 'react';
-import { Tabs as TabsPrimitive } from 'radix-ui';
+import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
 import { useStableId } from '../shared/useStableId';
@@ -43,11 +43,11 @@ export interface StepperProps {
 }
 
 /**
- * @manifest Linear step wizard built on the same Radix Tabs primitive as `<TabStrip>`, with per-step Form validation gating
+ * @manifest Linear step wizard built on the same Base UI Tabs primitive as `<TabStrip>`, with per-step Form validation gating
  * @manifestConstraints Forward navigation past a step with `formId` set is blocked until that step's `<Form>` reports `isValid: true`
  * @manifestCategory Data Display
  * @manifestAntiPatternAvoid Hand-roll a multi-step wizard with `useState` for the active step and manual "can I advance" checks
- * @manifestAntiPatternInstead Use `<Stepper>` — built on the same Radix Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId`
+ * @manifestAntiPatternInstead Use `<Stepper>` — built on the same Base UI Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId`
  */
 export const Stepper: React.FC<StepperProps> = ({
   id: propId,
@@ -90,28 +90,27 @@ export const Stepper: React.FC<StepperProps> = ({
   }
 
   const previousIndexRef = useRef<number | undefined>(undefined);
+  // Emits on mount and on every change of the effective index, so a controlled
+  // parent moving `activeIndex` is broadcast the same as a click.
   useEffect(() => {
-    aiBus.emit('stepper:changed', { id, activeIndex, previousIndex: undefined });
+    if (previousIndexRef.current === activeIndex) return;
+    aiBus.emit('stepper:changed', { id, activeIndex, previousIndex: previousIndexRef.current });
     previousIndexRef.current = activeIndex;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeIndex]);
 
   const goToIndex = (index: number) => {
     const clamped = Math.max(0, Math.min(index, steps.length - 1));
     if (clamped > maxReachableIndex || steps[clamped]?.disabled) return;
     if (!isControlled) setInternalIndex(clamped);
     onActiveIndexChange?.(clamped);
-    if (clamped !== previousIndexRef.current) {
-      aiBus.emit('stepper:changed', { id, activeIndex: clamped, previousIndex: previousIndexRef.current });
-      previousIndexRef.current = clamped;
-    }
   };
 
   const activeStep = steps[activeIndex];
   const canAdvance = activeStep ? isStepSatisfied(activeStep) && activeIndex < steps.length - 1 : false;
 
   return (
-    <TabsPrimitive.Root
+    <BaseTabs.Root
       value={activeStep?.id}
       onValueChange={val => {
         const index = steps.findIndex(s => s.id === val);
@@ -119,14 +118,15 @@ export const Stepper: React.FC<StepperProps> = ({
       }}
       style={{ display: 'flex', flexDirection: 'column', width: '100%', ...stepperVars }}
     >
-      <TabsPrimitive.List style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
+      {/* activateOnFocus: arrow keys select the step they reach (#702). */}
+      <BaseTabs.List activateOnFocus style={{ display: 'flex', alignItems: 'center', marginBottom: '1.25rem' }}>
         {steps.map((step, index) => {
           const isCompleted = index < activeIndex && isStepSatisfied(step);
           const isActive = index === activeIndex;
           const isReachable = index <= maxReachableIndex && !step.disabled;
           return (
             <React.Fragment key={step.id}>
-              <TabsPrimitive.Trigger
+              <BaseTabs.Tab
                 value={step.id}
                 disabled={!isReachable}
                 aria-current={isActive ? 'step' : undefined}
@@ -152,7 +152,11 @@ export const Stepper: React.FC<StepperProps> = ({
                     fontWeight: 'var(--ai-font-weight-semibold, 600)',
                     flexShrink: 0,
                     background: isActive || isCompleted ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-container, #f3f4f6)',
-                    color: isActive || isCompleted ? 'var(--ai-color-on-primary, #ffffff)' : 'var(--ai-text-secondary, #6b7280)',
+                    // --ai-color-on-primary was never a real variable (see
+                    // Calendar.tsx's identical fix) -- was always silently
+                    // falling back to a hardcoded #ffffff instead of the
+                    // theme's real WCAG-computed primary text color.
+                    color: isActive || isCompleted ? 'var(--ai-color-primary-text, #ffffff)' : 'var(--ai-text-secondary, #6b7280)',
                   }}
                 >
                   {isCompleted ? '✓' : index + 1}
@@ -166,7 +170,7 @@ export const Stepper: React.FC<StepperProps> = ({
                 >
                   {step.label}
                 </span>
-              </TabsPrimitive.Trigger>
+              </BaseTabs.Tab>
               {index < steps.length - 1 && (
                 <div
                   style={{
@@ -180,12 +184,12 @@ export const Stepper: React.FC<StepperProps> = ({
             </React.Fragment>
           );
         })}
-      </TabsPrimitive.List>
+      </BaseTabs.List>
 
       {steps.map(step => (
-        <TabsPrimitive.Content key={step.id} value={step.id} style={{ flex: 1 }}>
+        <BaseTabs.Panel key={step.id} value={step.id} style={{ flex: 1 }}>
           {step.content}
-        </TabsPrimitive.Content>
+        </BaseTabs.Panel>
       ))}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.25rem' }}>
@@ -201,6 +205,15 @@ export const Stepper: React.FC<StepperProps> = ({
             borderRadius: 'var(--ai-radius-md, 0.375rem)',
             cursor: activeIndex === 0 ? 'not-allowed' : 'pointer',
             opacity: activeIndex === 0 ? 0.5 : 1,
+            // --ai-btn-bg -- toolkit-wide audit (issue found on the
+            // DataTable edit co-grid's Save/Cancel buttons, direct
+            // feedback): `.ai-btn:hover` reads this custom property
+            // specifically, not the plain `background` above, computing
+            // `color-mix(currentColor 12%, var(--ai-btn-bg, transparent))`
+            // `!important`. Without it, hover replaced this button's real
+            // background with a tint mixed into the transparent fallback
+            // instead of this button's own actual color.
+            ['--ai-btn-bg' as string]: 'var(--ai-bg-surface, #ffffff)',
           }}
         >
           Back
@@ -214,15 +227,21 @@ export const Stepper: React.FC<StepperProps> = ({
             padding: 'var(--ai-padding-md, 0.5rem 1rem)',
             border: 'none',
             background: 'var(--ai-color-primary, #3b82f6)',
-            color: 'var(--ai-color-on-primary, #ffffff)',
+            color: 'var(--ai-color-primary-text, #ffffff)',
             borderRadius: 'var(--ai-radius-md, 0.375rem)',
             cursor: canAdvance ? 'pointer' : 'not-allowed',
             opacity: canAdvance ? 1 : 0.5,
+            // --ai-btn-bg -- see the Back button's identical comment
+            // above. This one is the more visually dramatic case: white
+            // text on primary blue losing its real background on hover
+            // read as the same lost-contrast bug reported on the
+            // DataTable co-grid's Cancel button.
+            ['--ai-btn-bg' as string]: 'var(--ai-color-primary, #3b82f6)',
           }}
         >
           Next
         </button>
       </div>
-    </TabsPrimitive.Root>
+    </BaseTabs.Root>
   );
 };

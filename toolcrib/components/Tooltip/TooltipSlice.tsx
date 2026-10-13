@@ -1,5 +1,4 @@
 import { type ThemeSlice } from '../../theme/slice';
-import { FieldRow } from '../ThemeEditor/ThemeEditorFieldRow';
 
 declare module '../../theme/sliceStateMap' {
   interface ToolcribSliceStateMap {
@@ -39,8 +38,13 @@ export function getTooltipVariables(state: TooltipSliceState = defaultTooltipSta
     bg = 'var(--ai-bg-surface, #ffffff)';
     color = 'var(--ai-text-primary, #111827)';
   } else if (theme === 'accent') {
-    bg = 'var(--ai-color-primary, #3b82f6)';
-    color = '#ffffff';
+    // Issue #402: this was wired to --ai-color-primary despite being named
+    // (and labeled in the editor below) "accent" -- a self-documented
+    // mismatch the field-row label's own old "(Primary Colour)"
+    // parenthetical admitted. Now genuinely resolves to the harmony
+    // palette's accent role.
+    bg = 'var(--ai-color-accent, #8b5cf6)';
+    color = 'var(--ai-color-accent-text, #ffffff)';
   }
 
   const padding = size === 'sm' ? '0.25rem 0.5rem' : '0.375rem 0.625rem';
@@ -61,29 +65,6 @@ export const TooltipThemeSlice: ThemeSlice<TooltipSliceState, TooltipCSSVariable
   category: 'Overlays',
   defaultState: defaultTooltipState,
   getCSSVariables: getTooltipVariables,
-  renderEditorControl: (state, onChange) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <FieldRow
-        label="Tooltip Colour Theme"
-        value={state.theme}
-        onChange={val => onChange({ ...state, theme: val as TooltipTheme })}
-        options={[
-          { label: 'Dark (Default)', value: 'dark' },
-          { label: 'Light (Surface Colour)', value: 'light' },
-          { label: 'Accent (Primary Colour)', value: 'accent' },
-        ]}
-      />
-      <FieldRow
-        label="Tooltip Size"
-        value={state.size}
-        onChange={val => onChange({ ...state, size: val as TooltipSize })}
-        options={[
-          { label: 'Small (Compact Padding & Font)', value: 'sm' },
-          { label: 'Medium (Standard Padding & Font)', value: 'md' },
-        ]}
-      />
-    </div>
-  ),
   fieldVars: {
     theme: ['--ai-tooltip-bg', '--ai-tooltip-color'],
     size: ['--ai-tooltip-padding', '--ai-tooltip-font-size'],

@@ -77,7 +77,9 @@ export const Carousel: React.FC<CarouselProps> = ({
     setCanScrollPrev(emblaApi.canScrollPrev());
     setCanScrollNext(emblaApi.canScrollNext());
     if (nextIndex !== previousIndexRef.current) {
-      onSlideChange?.(nextIndex);
+      // The initial selection is reported on the bus only: the callback is
+      // for changes, not for the mount.
+      if (previousIndexRef.current !== undefined) onSlideChange?.(nextIndex);
       aiBus.emit('carousel:changed', { id, activeIndex: nextIndex, previousIndex: previousIndexRef.current });
       previousIndexRef.current = nextIndex;
     }
@@ -116,8 +118,8 @@ export const Carousel: React.FC<CarouselProps> = ({
   }, [emblaApi, autoplay]);
 
   // Hand-rolled roving tabindex + arrow-key nav for the dot tablist: unlike
-  // TabStrip/Stepper (real Radix TabsPrimitive), the dots drive Embla's own
-  // scroll-snap position rather than a Radix Tabs `value`/Content pairing,
+  // TabStrip/Stepper (real tab primitives), the dots drive Embla's own
+  // scroll-snap position rather than a tabs `value`/panel pairing,
   // so there's no primitive to inherit this from — the WAI-ARIA APG Tablist
   // pattern (one Tab stop, Left/Right/Home/End moves + activates) has to be
   // implemented directly, same as Tree's hand-rolled keydown handling.

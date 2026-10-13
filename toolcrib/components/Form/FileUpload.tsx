@@ -11,6 +11,7 @@
    folded into `items` state deliberately -- these are Blob object URLs,
    not serializable data that should trigger their own re-render cycle. */
 import React, { useContext, useEffect, useRef, useState } from 'react';
+import { useFieldsetDisabled } from '../Fieldset/FieldsetContext';
 import { useOptionalFormContext } from './FormContext';
 import { FieldContext } from './FieldContext';
 import { Button } from './FormComponents';
@@ -20,6 +21,8 @@ import { aiBus } from '../../eventBus/eventBus';
 import { getSparseVariables } from '../../theme/slice';
 import { FileUploadThemeSlice, type FileUploadSliceState, type FileUploadDensity } from './FileUploadSlice';
 import { CONTROL_FONT_SIZE_VAR, type ControlSize } from '../../theme/controlSize';
+import { type SquareCornerOption, resolveSquareCorners } from '../Card/Card';
+import { useUIGroupSquareCorners } from '../UIGroup/UIGroupContext';
 
 const SIZE_TO_DENSITY: Record<ControlSize, FileUploadDensity> = {
   sm: 'compact',
@@ -66,6 +69,12 @@ export interface FileUploadProps {
   overrides?: Partial<FileUploadSliceState>;
   /** Control size, standardized with `<Button>` and every other sized control — maps onto the same `density` scale as `overrides.density` (`sm`→`'compact'`, `md`→`'normal'`, `lg`→`'spacious'`) and scales the dropzone's own label text. @default 'md' */
   size?: ControlSize;
+  /** Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern. */
+  squareCorners?: SquareCornerOption;
+  /** Accessible name for the dropzone. Only needed outside a `<FormField label>`, whose label names it already. */
+  'aria-label'?: string;
+  /** Id of the element that names the dropzone. Used instead of the inherited `<FormField>` label when set. */
+  'aria-labelledby'?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -84,17 +93,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   multiple = true,
   maxSizeBytes,
   maxFiles,
-  disabled = false,
+  disabled: disabledProp = false,
   onUpload,
   onFilesChange,
   overrides,
   size = 'md',
+  squareCorners,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }) => {
+  const disabled = useFieldsetDisabled(disabledProp);
   const fieldCtx = useContext(FieldContext);
   const fieldName = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
   const registerField = formContext?.registerField;
   const fileUploadVars = getSparseVariables(FileUploadThemeSlice, { density: SIZE_TO_DENSITY[size], ...overrides });
+  const uiGroupSquareCorners = useUIGroupSquareCorners();
+  const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextIdRef = useRef(0);
   const previewUrlsRef = useRef<Map<string, string>>(new Map());
@@ -104,7 +119,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [rejections, setRejections] = useState<string[]>([]);
 
   useEffect(() => {
-    if (fieldName && registerField) registerField(fieldName);
+    if (fieldName && registerField) registerField(fieldName, []);
   }, [fieldName, registerField]);
 
   // Object URLs are only released here (removal/unmount), never recreated
@@ -248,6 +263,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-disabled={disabled}
+        {...(ariaLabel ? { 'aria-label': ariaLabel } : { 'aria-labelledby': ariaLabelledBy ?? fieldCtx.labelId })}
         onClick={() => !disabled && inputRef.current?.click()}
         onKeyDown={e => {
           if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
@@ -274,16 +290,28 @@ export const FileUpload: React.FC<FileUploadProps> = ({
           gap: '0.5rem',
           width: '100%',
           padding: 'var(--ai-fileupload-dropzone-padding, 1.5rem)',
-          borderRadius: 'var(--ai-radius-md, 0.375rem)',
-          border: `0.125rem dashed ${isDragOver ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
-          background: isDragOver ? 'color-mix(in srgb, var(--ai-color-primary, #3b82f6) 8%, transparent)' : 'var(--ai-bg-container, #f9fafb)',
+          borderTopLeftRadius: 'var(--ai-radius-md, 0.375rem)',
+          borderTopRightRadius: 'var(--ai-radius-md, 0.375rem)',
+          borderBottomLeftRadius: 'var(--ai-radius-md, 0.375rem)',
+          borderBottomRightRadius: 'var(--ai-radius-md, 0.375rem)',
+          // Issue #402: accent, not primary -- a drag-over highlight is a
+          // momentary active-interaction cue, distinct from the toolkit's
+          // persistent selected/checked identity color, so it reuses the
+          // same accent role Splitter's own drag-handle just adopted for
+          // the identical reason.
+          border: `0.125rem dashed ${isDragOver ? 'var(--ai-color-accent, #8b5cf6)' : 'var(--ai-border, #d1d5db)'}`,
+          background: isDragOver ? 'color-mix(in srgb, var(--ai-color-accent, #8b5cf6) 8%, transparent)' : 'var(--ai-bg-container, #f9fafb)',
           boxSizing: 'border-box',
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.6 : 1,
           outline: 'none',
           textAlign: 'center',
-          transition: 'border-color 0.15s ease, background 0.15s ease',
+          // No inline transition -- .ai-focus-ring's own shared rule
+          // (interactionStyles.ts) already covers background-color and
+          // border-color and is !important, so this would be silently
+          // discarded outright, not just redundant (issue #411).
           ...fileUploadVars,
+          ...cornerOverrides,
         }}
       >
         <input

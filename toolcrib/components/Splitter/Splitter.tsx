@@ -16,13 +16,79 @@ import { Z_INDEX } from '../../theme/zIndex';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
 import { LayoutDomainProvider, useCornerSquaring } from './LayoutDomainContext';
-import { warnIfLegacyStyleProps } from '../../theme/safeProps';
 import { useStableId } from '../shared/useStableId';
 import { injectGlobalStyle } from '../../theme/injectGlobalStyle';
 import { useTargetDocument } from '../../theme/targetDocumentContext';
 import { useNonce } from '../../theme/nonceContext';
 
 const CORNER_SQUARING_STYLE_ID = 'toolcrib-corner-squaring';
+
+// The gutter/handle's own fixed cross-axis size (both orientations use the
+// same constant -- see its flex-basis below). Named here, not just inlined
+// at each of its two use sites, because a real bug (reported directly,
+// from a real screenshot) traced back to exactly this number needing to
+// be known in TWO places that used to disagree: the two panels' own
+// flex-basis percentages (below) summed to exactly 100% of the
+// container's height, leaving no room at all for this handle's own fixed
+// pixel footprint once laid out alongside them. Since the first panel has
+// flex-shrink:0 (`flex: 0 0 ...`) and only the second has flex-shrink:1
+// (`flex: 1 1 ...`), a flexbox container that's asked for more total
+// space than it has always resolves that shortfall entirely out of the
+// one item allowed to shrink -- so the SECOND panel silently lost this
+// handle's ENTIRE width on every single render, at every split ratio, not
+// just an edge case. Imperceptible at a typical panel size (a 787px-tall
+// panel losing 10px isn't visible), but catastrophic for anything sized
+// deliberately close to its own real content height -- confirmed directly
+// via a real Playwright measurement (demo/App.tsx's event-log collapse
+// button): a panel computed to exactly match its toolbar's real 28px
+// height rendered at 18px instead, clipping it, for precisely this
+// reason. Splitting the handle's footprint evenly between both panels
+// (below) is the standard fix for a fixed-size gutter between two
+// percentage-sized flex items -- both panels now correctly land at their
+// stated percentage of the REAL available space, not of a total that was
+// never actually all theirs to share.
+//
+// Exported (not module-private) because splitting the handle's footprint
+// evenly between the two panels only makes each panel's *reported*
+// percentage internally consistent with the others -- it does NOT make a
+// panel's real rendered pixel height equal `split% * containerHeight`
+// exactly, since half the handle's own size is still subtracted from
+// whichever panel a consumer is sizing. A consumer computing a split
+// percentage to fit a panel to a *specific measured pixel height* (e.g.
+// "collapse this panel to exactly its own toolbar's real height", demo/
+// App.tsx's own event-log collapse button) needs to add this same
+// half-handle offset back in before converting a target pixel height to a
+// percentage, or their own real result will fall short by exactly this
+// amount -- confirmed directly (not assumed) via the Playwright
+// measurement that found this whole bug in the first place.
+//
+// A SECOND, independent bug was found live on that same demo button after
+// this fix had already shipped (reported directly, from a real screenshot,
+// at a real deployed URL -- not local dev) -- worth recording here since
+// it's the other half of the same "collapse to fit a real element" recipe,
+// and just as easy to get wrong the same way this file's own bug was.
+// demo/App.tsx measured the *inner* <Toolbar>'s own content box (28px) as
+// its pixel target, not the *outer* <Card.Header> that actually wraps it
+// -- Card.Header's own `paddingMode` padding (8px top + 8px bottom) was
+// never included, so the real box that needed to fit (45px) was 17px
+// taller than what got measured. The panel landed exactly on its own
+// (wrong) 28px target, correctly by its own math, and still clipped --
+// visually indistinguishable from this file's own handle-overlap bug
+// (both show as "the toolbar row gets cut off, consistently, regardless
+// of window size"), but a different root cause needing a different fix:
+// there, the SOURCE (Splitter) wasn't reserving space it should have;
+// here, the CONSUMER was measuring the wrong DOM node -- an inner child
+// instead of the actual bordered/padded box whose real rendered size is
+// what needs to fit. The general lesson for anyone doing this kind of
+// pixel-exact "collapse to fit X" computation: measure the outermost
+// element whose full rendered box (including its own padding/border) is
+// what actually needs to fit inside the target space, never an inner
+// child that only covers its unpadded content -- and verify with a real
+// `getBoundingClientRect()`/`getComputedStyle()` measurement, not by
+// eyeballing which `<div>` "looks about right" to wrap in a ref.
+/** @barrelExport */
+export const SPLITTER_HANDLE_SIZE_REM = 0.625;
+const HALF_HANDLE_SIZE_REM = SPLITTER_HANDLE_SIZE_REM / 2;
 
 /**
  * Automatic corner-squaring for the two panels this Splitter renders,
@@ -129,6 +195,8 @@ export interface SplitterPanelProps {
  * @manifest Resizable two-panel layout with automatic corner-squaring domain
  * @manifestConstraints Requires exactly 2 children
  * @manifestCategory Containers
+ * @manifestAntiPatternAvoid When computing a pixel-exact `split` via `splitter:split_changed` (e.g. "collapse this panel to exactly its own header's height"), measuring an inner child's content box instead of the actual outermost element whose full rendered box (padding/border included) needs to fit
+ * @manifestAntiPatternInstead Measure the real outer element (e.g. a `Card.Header`, not the `<Toolbar>` inside it) with `getBoundingClientRect()`, and add half of `SPLITTER_HANDLE_SIZE_REM` (in px) before converting the target height to a percentage — both omissions clip the panel identically regardless of viewport size, confirmed directly via real Playwright measurement, not assumed
  */
 export const Splitter: React.FC<SplitterProps> & {
   Panel: React.FC<SplitterPanelProps>;
@@ -138,9 +206,7 @@ export const Splitter: React.FC<SplitterProps> & {
   initialSplit = 70,
   minSize = 15,
   children,
-  ...props
 }) => {
-  warnIfLegacyStyleProps(props, 'Splitter');
   const targetDocument = useTargetDocument();
   const nonce = useNonce();
   useEffect(() => {
@@ -260,7 +326,16 @@ export const Splitter: React.FC<SplitterProps> & {
     // (the overwhelmingly common one — ownerDocument.defaultView is just
     // the same window) and the portaled-into-another-document case, with
     // no new prop or opt-in required either way.
-    const ownerWindow = containerRef.current.ownerDocument.defaultView ?? window;
+    // Explicit `: Window` annotation, not left inferred -- without it, the
+    // bare global `window` fallback infers `Window & typeof globalThis`,
+    // and TypeScript's `'PointerEvent' in ownerWindow` narrowing (below)
+    // treats that intersection type's `else` branch as unreachable
+    // (`never`), unlike plain `Window`. Confirmed directly: this exact
+    // annotation is the only difference between this file (which needed
+    // it) and useTableColumnResize.ts's identical check (which didn't,
+    // since its `ownerWindow` was already typed `Window` via an interface
+    // field rather than inferred from a `?? window` expression).
+    const ownerWindow: Window = containerRef.current.ownerDocument.defaultView ?? window;
 
     const handlePointerMove = (e: MouseEvent | PointerEvent) => {
       if (!containerRef.current) return;
@@ -284,21 +359,56 @@ export const Splitter: React.FC<SplitterProps> & {
       setSplit(clamped);
     };
 
+    // Guards a real release from being committed twice if a duplicate "up"
+    // dispatch ever reaches handlePointerUp below (see the listener
+    // registration further down for why that's now unlikely in practice,
+    // but not something to rely on unconditionally -- this costs nothing
+    // and covers any input path that doesn't happen to go through it). A
+    // plain local, not a useRef: this whole effect re-runs fresh for every
+    // new drag (isDragging false -> true), so a new one is exactly what's
+    // wanted each time, with no separate reset step to remember.
+    const hasCommittedRef = { current: false };
+
     const handlePointerUp = () => {
+      if (hasCommittedRef.current) return;
+      hasCommittedRef.current = true;
       setIsDragging(false);
       commitSplit(latestSplitRef.current);
     };
 
-    ownerWindow.addEventListener('mousemove', handlePointerMove);
-    ownerWindow.addEventListener('mouseup', handlePointerUp);
-    ownerWindow.addEventListener('pointermove', handlePointerMove);
-    ownerWindow.addEventListener('pointerup', handlePointerUp);
+    // PointerEvent alone already covers mouse, touch, and pen -- registered
+    // in preference to the legacy mouse events, which are kept only as a
+    // fallback for a browser with no PointerEvent support at all.
+    //
+    // This isn't guarding against a live bug found here: a real browser's
+    // "compatibility" mousedown/mousemove/mouseup dispatch for pointer
+    // input is suppressed once `onHandleDown` calls `preventDefault()` on
+    // the (earlier-firing) pointerdown event, per the Pointer Events spec
+    // -- confirmed directly via a real Chromium/WebKit drag on the demo's
+    // own main Splitter, counting `splitter:split_changed` emissions on
+    // aiBus: exactly one per release, both browsers, both before and after
+    // this change. Registering only one listener set is still the more
+    // correct shape regardless (this exact "register both unconditionally"
+    // pattern DID double-fire for a sibling component -- DataTable's
+    // column-resize handle, PR #327/issue #318 -- because its own
+    // `startResize` doesn't call `preventDefault()` on the *keyboard* path
+    // and there's no guarantee every future caller of this same shape
+    // will happen to call preventDefault() the way this one does), and
+    // removes any need to reason about whether that suppression holds for
+    // every input type/browser this code will ever run on.
+    if ('PointerEvent' in ownerWindow) {
+      ownerWindow.addEventListener('pointermove', handlePointerMove);
+      ownerWindow.addEventListener('pointerup', handlePointerUp);
+    } else {
+      ownerWindow.addEventListener('mousemove', handlePointerMove);
+      ownerWindow.addEventListener('mouseup', handlePointerUp);
+    }
 
     return () => {
-      ownerWindow.removeEventListener('mousemove', handlePointerMove);
-      ownerWindow.removeEventListener('mouseup', handlePointerUp);
       ownerWindow.removeEventListener('pointermove', handlePointerMove);
       ownerWindow.removeEventListener('pointerup', handlePointerUp);
+      ownerWindow.removeEventListener('mousemove', handlePointerMove);
+      ownerWindow.removeEventListener('mouseup', handlePointerUp);
     };
   }, [isDragging, isVertical, minSize, commitSplit]);
 
@@ -343,7 +453,7 @@ export const Splitter: React.FC<SplitterProps> & {
           data-ai-layout-slot="first"
           data-ai-layout-orientation={orientation}
           style={{
-            flex: `0 0 ${split}%`,
+            flex: `0 0 calc(${split}% - ${HALF_HANDLE_SIZE_REM}rem)`,
             width: '100%',
             height: isVertical ? undefined : '100%',
             boxSizing: 'border-box',
@@ -398,13 +508,21 @@ export const Splitter: React.FC<SplitterProps> & {
         }}
         className="ai-focus-ring"
         style={{
-          flex: '0 0 0.625rem',
-          background: isDragging ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #e5e7eb)',
+          flex: `0 0 ${SPLITTER_HANDLE_SIZE_REM}rem`,
+          // Issue #402: accent, not primary -- a momentary "you're actively
+          // dragging this" highlight is a genuinely different kind of
+          // feedback than a persistent selected/checked identity state
+          // (which stays primary everywhere else), so a distinct hue here
+          // is a deliberate, legible signal rather than arbitrary variety.
+          background: isDragging ? 'var(--ai-color-accent, #8b5cf6)' : 'var(--ai-border, #e5e7eb)',
           cursor: isVertical ? 'row-resize' : 'col-resize',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          transition: 'background 0.15s ease',
+          // No inline transition -- .ai-focus-ring's own shared rule
+          // (interactionStyles.ts) already covers background-color and is
+          // !important, so this would be silently discarded outright, not
+          // just redundant (issue #411).
           zIndex: Z_INDEX.SPLITTER,
           touchAction: 'none',
           userSelect: 'none',
@@ -429,7 +547,7 @@ export const Splitter: React.FC<SplitterProps> & {
           data-ai-layout-slot="second"
           data-ai-layout-orientation={orientation}
           style={{
-            flex: `1 1 ${100 - split}%`,
+            flex: `1 1 calc(${100 - split}% - ${HALF_HANDLE_SIZE_REM}rem)`,
             width: '100%',
             height: isVertical ? undefined : '100%',
             boxSizing: 'border-box',

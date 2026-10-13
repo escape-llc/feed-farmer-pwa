@@ -1,6 +1,7 @@
 'use client';
 
 import React, { type ReactNode, useContext } from 'react';
+import { useFieldsetDisabled } from '../Fieldset/FieldsetContext';
 import {
   TimeField as AriaTimeField,
   DateInput,
@@ -8,12 +9,15 @@ import {
   Label,
 } from 'react-aria-components/TimeField';
 import { I18nProvider } from 'react-aria-components/I18nProvider';
+import { focusRingClassName } from './focusRing';
 import { Time } from '@internationalized/date';
 import { useOptionalFormContext } from '../Form/FormContext';
 import { FieldContext } from '../Form/FieldContext';
 import { aiBus } from '../../eventBus/eventBus';
 import { useInjectInteractionStyles } from '../../theme/interactionStyles';
 import { CONTROL_FONT_SIZE_VAR, resolveControlPadding, type ControlSize } from '../../theme/controlSize';
+import { type SquareCornerOption, resolveSquareCorners } from '../Card/Card';
+import { useUIGroupSquareCorners } from '../UIGroup/UIGroupContext';
 
 /** Props for the `<TimeField>` segmented time input. */
 export interface TimeFieldProps {
@@ -60,6 +64,8 @@ export interface TimeFieldProps {
   'aria-label'?: string;
   /** Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set. */
   'aria-labelledby'?: string;
+  /** Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern. */
+  squareCorners?: SquareCornerOption;
 }
 
 /**
@@ -76,15 +82,19 @@ export const TimeField: React.FC<TimeFieldProps> = ({
   onChange,
   granularity = 'minute',
   hourCycle,
-  isDisabled = false,
+  isDisabled: isDisabledProp = false,
   locale = 'en-US',
   size = 'md',
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  squareCorners,
 }) => {
+  const isDisabled = useFieldsetDisabled(isDisabledProp);
   const fieldCtx = useContext(FieldContext);
   const fieldName = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
+  const uiGroupSquareCorners = useUIGroupSquareCorners();
+  const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
   useInjectInteractionStyles();
 
   const formValue: Time | null | undefined =
@@ -126,23 +136,30 @@ export const TimeField: React.FC<TimeFieldProps> = ({
         isDisabled={isDisabled}
         aria-label={!label ? ariaLabel : undefined}
         aria-labelledby={!label ? ariaLabelledBy : undefined}
-        className="ai-focus-ring"
       >
         {label && (
           <Label style={{ display: 'block', fontSize: CONTROL_FONT_SIZE_VAR[size], fontWeight: 'var(--ai-font-weight-semibold, 600)', marginBottom: '0.375rem', color: 'var(--ai-text-primary, #111827)' }}>
             {label}
           </Label>
         )}
+        {/* The ring goes on the bordered field, not the picker's full-width root. */}
         <DateInput
+          className={focusRingClassName}
           style={{
             display: 'flex',
             padding: resolveControlPadding(size, 'var(--ai-input-padding, 0.5rem 0.75rem)'),
             border: `0.0625rem solid var(--ai-border, #d1d5db)`,
-            borderRadius: 'var(--ai-radius-md, 0.375rem)',
+            borderTopLeftRadius: 'var(--ai-radius-md, 0.375rem)',
+            borderTopRightRadius: 'var(--ai-radius-md, 0.375rem)',
+            borderBottomLeftRadius: 'var(--ai-radius-md, 0.375rem)',
+            borderBottomRightRadius: 'var(--ai-radius-md, 0.375rem)',
             background: isDisabled ? 'var(--ai-bg-container, #f3f4f6)' : 'var(--ai-bg-surface, #ffffff)',
             fontSize: CONTROL_FONT_SIZE_VAR[size],
             color: 'var(--ai-text-primary, #111827)',
             width: 'fit-content',
+            cursor: isDisabled ? 'not-allowed' : undefined,
+            opacity: isDisabled ? 0.6 : undefined,
+            ...cornerOverrides,
           }}
         >
           {segment => (

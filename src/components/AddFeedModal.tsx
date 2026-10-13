@@ -40,7 +40,7 @@ export default function AddFeedModal() {
           <Button variant="primary" size="sm" icon="＋" aria-label="Add Feed" />
         </Tooltip>
       }
-      ariaLabel="Add Feed"
+      aria-label="Add Feed"
       width="28rem"
     >
       <Modal.Header>Add a New Feed</Modal.Header>

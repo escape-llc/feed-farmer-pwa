@@ -1,7 +1,9 @@
 'use client';
 
-import React, { type ReactNode, type InputHTMLAttributes, type TextareaHTMLAttributes, type ButtonHTMLAttributes, useContext, useEffect } from 'react';
-import { Checkbox as CheckboxPrimitive, Switch as SwitchPrimitive } from 'radix-ui';
+import React, { type ReactNode, type InputHTMLAttributes, type TextareaHTMLAttributes, type ButtonHTMLAttributes, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
+import { Switch as BaseSwitch } from '@base-ui/react/switch';
+import { Eye, EyeOff } from 'lucide-react';
 import { useOptionalFormContext } from './FormContext';
 import { type PaddingMode, resolvePadding } from '../../theme/padding';
 import { type CornerRadiusMode, resolveRadius } from '../../theme/radius';
@@ -17,8 +19,11 @@ import { useUIGroupSquareCorners } from '../UIGroup/UIGroupContext';
 import { FieldContext } from './FieldContext';
 import { ButtonThemeSlice, type ButtonSliceState } from './ButtonSlice';
 import { InputThemeSlice, type InputSliceState } from './InputSlice';
+import { useLocaleStrings } from '../Locale/LocaleContext';
 import { ToggleControlThemeSlice, type ToggleControlSliceState } from './ToggleControlSlice';
 import { Label } from './Label';
+import { useDeferredCollapseContent } from './useDeferredCollapseContent';
+import { useFieldsetDisabled } from '../Fieldset/FieldsetContext';
 export * from './RadioGroup';
 export * from './Select';
 export * from './Slider';
@@ -42,30 +47,142 @@ export interface FormFieldProps {
   children: ReactNode;
 }
 
+/**
+ * @manifest Wraps one form control with its label, helper text and validation error, and binds the control to the Form field `name` via context
+ * @manifestCategory Form Controls
+ */
 export const FormField: React.FC<FormFieldProps> = ({ name, label, helperText, children }) => {
   const formContext = useOptionalFormContext();
   const error = formContext && formContext.touched[name] ? formContext.errors[name] : undefined;
   const errorId = `${name}-error`;
+  const labelId = label ? `${name}-label` : undefined;
+  const fieldContextValue = { name, labelId };
+
+  // Issue #507: built fresh each render (correct styling/kind for
+  // whichever of error/helperText currently applies), then handed to
+  // useDeferredCollapseContent so it keeps rendering the LAST non-empty
+  // one through the collapse transition below, instead of unmounting
+  // the instant both go empty -- see that hook's own comment for why.
+  const currentRegionContent: ReactNode = error ? (
+    <span id={errorId} style={{ fontSize: '0.75rem', color: 'var(--ai-subtheme-error, #ef4444)', marginTop: '0.125rem', display: 'block' }}>
+      {error}
+    </span>
+  ) : helperText ? (
+    <span style={{ fontSize: '0.75rem', color: 'var(--ai-text-secondary, #6b7280)', marginTop: '0.125rem', display: 'block' }}>
+      {helperText}
+    </span>
+  ) : undefined;
+  // `error`/`helperText` themselves (the raw props, not `String(...)`'d)
+  // -- see useDeferredCollapseContent's own comment on why the RAW value
+  // has to be compared directly rather than a stringified stand-in
+  // (`String()` on a JSX `helperText` collapses every distinct element
+  // to the identical "[object Object]", a real bug caught in review,
+  // Gemini PR #511) or `currentRegionContent` itself (a fresh JSX object
+  // every render, an earlier version's real infinite-loop bug).
+  const currentRegionKind = error ? 'error' : helperText ? 'helper' : undefined;
+  const currentRegionValue: unknown = error ?? helperText;
+  const { display: regionDisplay, onTransitionEnd: handleRegionTransitionEnd } = useDeferredCollapseContent(currentRegionKind, currentRegionValue, currentRegionContent);
 
   return (
-    <FieldContext.Provider value={{ name }}>
+    <FieldContext.Provider value={fieldContextValue}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', width: '100%', marginBottom: 'var(--ai-margin-gap, 0.875rem)' }}>
         {label && (
-          <Label htmlFor={name} overrides={{ weight: 'semibold' }}>
+          <Label id={labelId} htmlFor={name} overrides={{ weight: 'semibold' }}>
             {label}
           </Label>
         )}
         {children}
-        {error && (
-          <span id={errorId} style={{ fontSize: '0.75rem', color: 'var(--ai-subtheme-error, #ef4444)', marginTop: '0.125rem' }}>
-            {error}
-          </span>
-        )}
-        {!error && helperText && (
-          <span style={{ fontSize: '0.75rem', color: 'var(--ai-text-secondary, #6b7280)', marginTop: '0.125rem' }}>
-            {helperText}
-          </span>
-        )}
+        {/*
+          Slides open/closed instead of slamming (issue #503) via the
+          standard CSS grid technique for animating to/from intrinsic
+          height with no JS measurement: a single-row grid transitioning
+          `grid-template-rows` between `0fr` and `1fr`, with its one child
+          (the actual real height driver) clipped by `overflow: hidden`
+          during the transition. `min-height: 0` on that child is required,
+          not optional -- grid items default to `min-height: auto`
+          (matching flex items' own default), which can stop the item
+          shrinking below its content's intrinsic size and fight the
+          explicit `0fr` row height otherwise.
+
+          Always rendered now (previously: conditionally absent entirely
+          when neither error nor helperText applied) -- an unconditionally
+          zero-height grid row contributes zero visible space on its own,
+          but the parent's own `gap: '0.375rem'` (spacing every child from
+          its neighbor) would still add a fixed gap before this now-always-
+          present child regardless of its collapsed height, a real
+          regression from the previous fully-absent-node behavior. Canceled
+          by animating `marginTop` in the opposite direction alongside the
+          row transition: `-0.375rem` while collapsed (netting to zero
+          combined with the parent's `gap`) up to `0` while expanded
+          (letting the parent's gap apply in full) -- same combined spacing
+          in both end states as the original conditional-render version,
+          just reached smoothly instead of by insertion/removal.
+
+          `transition-duration` reuses `--ai-transition-duration-normal`,
+          the same token every other themed transition in this codebase
+          keys off -- already resolves to `0s` under `reducedMotion:
+          'always'`/`preset: 'none'` (animation.tsx's own
+          getAnimationVariables), so reduced motion is respected for free,
+          no separate JS check needed here.
+        */}
+        <div
+          // Test-only DOM hook (AGENTS.md's own established pattern --
+          // ThemeEditor's/Modal's data-testid precedent) so e2e specs can
+          // locate this wrapper directly instead of an XPath sibling
+          // relationship (`following-sibling::div[1]`) that silently
+          // breaks the moment this component's own markup shape changes.
+          // Suffixed with the field's own `name` -- a page can have
+          // several FormFields at once (username, email, ...), each
+          // rendering this same wrapper shape, so a bare shared id would
+          // be ambiguous the instant more than one is on screen. Costs
+          // nothing at runtime and carries no consumer-facing meaning.
+          data-testid={`form-field-error-region-${name}`}
+          // aria-hidden when collapsed -- caught in review (Gemini, PR
+          // #506): `overflow: hidden` + `grid-template-rows: 0fr` clips
+          // content to zero *visible* area, but isn't guaranteed to read
+          // as "hidden" to every screen reader's own visibility heuristic
+          // (unlike `display: none`/`visibility: hidden`, which every AT
+          // respects unambiguously). Harmless when there's genuinely
+          // nothing inside (FormField's error/helper span is still
+          // conditionally rendered, only present once truthy) -- applied
+          // uniformly here anyway for defense-in-depth, since FormError's
+          // own summary variant (below) has a *static* string that's
+          // always in the DOM regardless of this same collapsed state,
+          // where this same attribute is load-bearing, not just extra
+          // safety.
+          //
+          // visibility: 'hidden' when collapsed -- a second, follow-up
+          // finding on the same PR (Gemini): aria-hidden alone still lets
+          // a browser's native "Find on Page" (Ctrl+F) match and scroll to
+          // the collapsed, zero-height text, since neither
+          // `overflow: hidden` nor `aria-hidden` affects that. `visibility`
+          // is the one property both the accessibility tree AND native
+          // find-on-page respect. Delayed via transitionDelay (only on the
+          // *collapsing* direction, only on this one property) so the
+          // content stays visible for the full grid-row shrink and only
+          // actually vanishes once the collapse animation has finished --
+          // switching instantly would cut the transition short visually.
+          aria-hidden={!(error || helperText)}
+          // Issue #507: fires once the collapse (grid-template-rows)
+          // transition genuinely finishes -- the signal
+          // useDeferredCollapseContent needs to stop holding onto the
+          // last-shown text and let it actually unmount.
+          onTransitionEnd={handleRegionTransitionEnd}
+          style={{
+            display: 'grid',
+            gridTemplateRows: error || helperText ? '1fr' : '0fr',
+            marginTop: error || helperText ? 0 : '-0.375rem',
+            visibility: error || helperText ? 'visible' : 'hidden',
+            transitionProperty: 'grid-template-rows, margin-top, visibility',
+            transitionDuration: 'var(--ai-transition-duration-normal, 0.2s)',
+            transitionTimingFunction: 'var(--ai-transition-easing, ease)',
+            transitionDelay: error || helperText ? '0s' : '0s, 0s, var(--ai-transition-duration-normal, 0.2s)',
+          }}
+        >
+          <div style={{ overflow: 'hidden', minHeight: 0 }}>
+            {regionDisplay}
+          </div>
+        </div>
       </div>
     </FieldContext.Provider>
   );
@@ -82,27 +199,99 @@ export interface FormErrorProps {
   name?: string;
 }
 
+/**
+ * @manifest Validation error display: one field's error (after it is touched) with `name`, or a summary banner of all errors without it
+ * @manifestCategory Form Controls
+ */
 export const FormError: React.FC<FormErrorProps> = ({ name }) => {
   const formContext = useOptionalFormContext();
+  // Computed unconditionally, before the `!formContext` early return
+  // below -- useDeferredCollapseContent is a hook, and hooks can't be
+  // called conditionally/after an early return (Rules of Hooks). Issue
+  // #507: same "hold the last non-empty content through the collapse"
+  // treatment as FormField's own error/helperText region -- see that
+  // hook's own comment for why.
+  const namedError = formContext && name && formContext.touched[name] ? formContext.errors[name] : undefined;
+  const namedErrorContent: ReactNode = namedError ? (
+    <div style={{ color: 'var(--ai-subtheme-error, #ef4444)', fontSize: '0.75rem', marginTop: '0.25rem' }}>{namedError}</div>
+  ) : undefined;
+  const { display: namedErrorDisplay, onTransitionEnd: handleNamedErrorTransitionEnd } = useDeferredCollapseContent(namedError ? 'error' : undefined, namedError, namedErrorContent);
+
   if (!formContext) return null;
 
-  const { errors, touched } = formContext;
+  const { errors } = formContext;
+  // Both branches below now always render the same outer grid wrapper --
+  // an early `return null` (the previous shape) would mean this
+  // component's own DOM node is fully absent one render and freshly
+  // inserted the next, and a CSS transition can't animate a node's very
+  // first paint, only a property CHANGE on a node that already exists.
+  // Same `grid-template-rows: 0fr -> 1fr` technique as FormField's own
+  // fix, same reasoning (see that component's own comment for the full
+  // account) -- collapsed state is genuinely zero-footprint here (no
+  // compensating negative margin the way FormField needed), since
+  // FormError is used standalone in an arbitrary consumer layout, not
+  // inside a known, fixed-gap flex container this component controls.
   if (name) {
-    const error = touched[name] ? errors[name] : undefined;
-    if (!error) return null;
     return (
-      <div style={{ color: 'var(--ai-subtheme-error, #ef4444)', fontSize: '0.75rem', marginTop: '0.25rem' }}>
-        {error}
+      <div
+        // Test-only DOM hook -- see FormField's own identical comment on
+        // `form-field-error-region` above (same per-field suffix reasoning:
+        // more than one named FormError can be on screen at once).
+        data-testid={`form-error-named-region-${name}`}
+        // See FormField's own aria-hidden/visibility comments for the full
+        // reasoning (both found in review, Gemini, PR #506).
+        aria-hidden={!namedError}
+        onTransitionEnd={handleNamedErrorTransitionEnd}
+        style={{
+          display: 'grid',
+          gridTemplateRows: namedError ? '1fr' : '0fr',
+          visibility: namedError ? 'visible' : 'hidden',
+          transitionProperty: 'grid-template-rows, visibility',
+          transitionDuration: 'var(--ai-transition-duration-normal, 0.2s)',
+          transitionTimingFunction: 'var(--ai-transition-easing, ease)',
+          transitionDelay: namedError ? '0s' : '0s, var(--ai-transition-duration-normal, 0.2s)',
+        }}
+      >
+        <div style={{ overflow: 'hidden', minHeight: 0 }}>
+          {namedErrorDisplay}
+        </div>
       </div>
     );
   }
 
   const hasErrors = Object.keys(errors).length > 0;
-  if (!hasErrors) return null;
 
   return (
-    <div style={{ color: 'var(--ai-subtheme-error, #ef4444)', fontSize: '0.875rem', padding: 'var(--ai-padding-md, 0.5rem 0.75rem)', background: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--ai-radius-md, 0.375rem)' }}>
-      Please correct the errors in the form before submitting.
+    <div
+      // Test-only DOM hook -- see FormField's own identical comment on
+      // `form-field-error-region` above.
+      data-testid="form-error-summary-region"
+      // Load-bearing here, not just defense-in-depth (unlike the other two
+      // wrappers above): this banner's own text is a *static* string,
+      // always in the DOM regardless of hasErrors -- without this, a
+      // screen reader whose own visibility heuristic doesn't treat a
+      // zero-height, overflow:hidden region as hidden would discover and
+      // announce "Please correct the errors..." even on a fully valid,
+      // untouched form. Same reasoning applies to visibility below -- also
+      // load-bearing here (not defense-in-depth), since it's what keeps a
+      // browser's native "Find on Page" from matching this same always-
+      // present static string (issue found in review, Gemini, PR #506).
+      aria-hidden={!hasErrors}
+      style={{
+        display: 'grid',
+        gridTemplateRows: hasErrors ? '1fr' : '0fr',
+        visibility: hasErrors ? 'visible' : 'hidden',
+        transitionProperty: 'grid-template-rows, visibility',
+        transitionDuration: 'var(--ai-transition-duration-normal, 0.2s)',
+        transitionTimingFunction: 'var(--ai-transition-easing, ease)',
+        transitionDelay: hasErrors ? '0s' : '0s, var(--ai-transition-duration-normal, 0.2s)',
+      }}
+    >
+      <div style={{ overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ color: 'var(--ai-subtheme-error, #ef4444)', fontSize: '0.875rem', padding: 'var(--ai-padding-md, 0.5rem 0.75rem)', background: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--ai-radius-md, 0.375rem)' }}>
+          Please correct the errors in the form before submitting.
+        </div>
+      </div>
     </div>
   );
 };
@@ -155,12 +344,12 @@ export interface ButtonProps extends StyleFree<ButtonHTMLAttributes<HTMLButtonEl
  * @manifest Styled button with five variants, three sizes, subtheme colouring, and icon slots
  * @manifestCategory Form Controls
  */
-// forwardRef, not a plain React.FC — Button is used as the child of Radix
-// `asChild` compositions (Modal.CloseButton, AlertDialog.Cancel/Action), and
-// Radix's Slot mechanism clones the child with a composed `ref` prop.
-// Giving a ref to a plain function component is a silent no-op that also
-// logs a dev-mode console warning ("Function components cannot be given
-// refs") — forwardRef is what makes that composition actually work cleanly.
+// forwardRef, not a plain React.FC — Button is the element of Base UI
+// `render` compositions (Modal.CloseButton, AlertDialog.Cancel/Action), which
+// merge their own `ref` into it. On React 18, giving a ref to a plain
+// function component is a silent no-op with a dev-mode console warning
+// ("Function components cannot be given refs"). Every other Form control is
+// a forwardRef too (#759), so a consumer can focus it.
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({
   children,
   variant = 'primary',
@@ -265,7 +454,11 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({
         borderBottomRightRadius: cornerOverrides.borderBottomRightRadius ?? currentRadius,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
-        transition: 'var(--ai-transition-normal, all 0.2s cubic-bezier(0.4, 0, 0.2, 1))',
+        // No inline transition -- .ai-btn's own shared rule
+        // (interactionStyles.ts) already covers background-color,
+        // border-color, border-radius, and transform, and is !important,
+        // so this would be silently discarded outright, not just
+        // redundant (issue #411).
         ...getSizeStyles(),
         ...variantStyles,
         // Hover's actual colour is computed live in CSS (see interactionStyles.ts's
@@ -292,7 +485,11 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({
 });
 Button.displayName = 'Button';
 
-export const SubmitButton: React.FC<ButtonProps> = (props) => {
+/**
+ * @manifest `<Button type="submit">` that stays disabled while the enclosing Form is submitting; takes every Button prop, `ref` included
+ * @manifestCategory Form Controls
+ */
+export const SubmitButton = React.forwardRef<HTMLButtonElement, ButtonProps>((props, ref) => {
   const formContext = useOptionalFormContext();
   const isSubmitting = formContext ? formContext.isSubmitting : false;
   // `disabled` must be applied AFTER `{...props}`, not before — see the
@@ -304,11 +501,12 @@ export const SubmitButton: React.FC<ButtonProps> = (props) => {
   // `isSubmitting ||` guard the instant the trailing spread runs — the
   // button would stop showing disabled while actively submitting.
   return (
-    <Button type="submit" {...props} disabled={isSubmitting || props.disabled}>
+    <Button ref={ref} type="submit" {...props} disabled={isSubmitting || props.disabled}>
       {isSubmitting ? 'Submitting...' : props.children || 'Submit'}
     </Button>
   );
-};
+});
+SubmitButton.displayName = 'SubmitButton';
 
 /** Props for `<Input>` — text input bound to Form context via `name`. */
 export interface InputProps extends StyleFree<Omit<InputHTMLAttributes<HTMLInputElement>, 'name' | 'size'>> {
@@ -322,26 +520,104 @@ export interface InputProps extends StyleFree<Omit<InputHTMLAttributes<HTMLInput
   squareCorners?: SquareCornerOption;
   /** Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row. @default 'md' */
   size?: ControlSize;
+  /**
+   * Shows a small "✕" clear button at the trailing edge once the input has
+   * a non-empty value — clicking it resets the value through the same
+   * onChange/Form-context path a real clear keystroke would take, then
+   * returns focus to the input. Mirrors `<Combobox>`'s own established
+   * single-select clear button (`strings.clearSelection`) — same
+   * `tabIndex={-1}` (mouse-only; Backspace/select-all already provide a
+   * keyboard path, so this doesn't add an extra required Tab stop for
+   * something with an easy keyboard alternative).
+   * @default false
+   */
+  clearable?: boolean;
+  /** Extra side effect to run when the clear button is clicked — e.g. also resetting a related piece of state (an active-descendant index, a filter). Runs after the value itself is cleared. Only meaningful alongside `clearable`. */
+  onClear?: () => void;
+  /**
+   * Content inside the field's border, before the text: an icon (`<Search />`),
+   * or short affix text (`'$'`, `'https://'`) — a plain string/number renders
+   * as muted affix text. May also be a small interactive control (e.g. a
+   * compact `<Select>` or `<Button>`); clicking any non-interactive part of a
+   * section focuses the input.
+   */
+  leadingSection?: ReactNode;
+  /** Same as `leadingSection`, after the text (`'.com'`, `'kg'`, an icon). Renders before the `clearable` button and the password reveal toggle when those are present. */
+  trailingSection?: ReactNode;
+  /**
+   * For `type="password"`: show an eye toggle that reveals the typed value.
+   * The toggle keeps a fixed accessible name (locale `input.showPassword`)
+   * and reports its state via `aria-pressed`. Ignored for other types.
+   * @default true
+   */
+  revealable?: boolean;
 }
 
-export const Input: React.FC<InputProps> = ({ id, name: propName, type = 'text', cornerRadiusMode, onBlur, onChange, value: externalValue, overrides, squareCorners, size = 'md', ...props }) => {
+/** Wraps a string/number section in muted affix text; passes any other node through. */
+function renderInputSection(section: ReactNode): ReactNode {
+  if (typeof section === 'string' || typeof section === 'number') {
+    return <span style={{ color: 'var(--ai-text-secondary, #6b7280)', whiteSpace: 'nowrap' }}>{section}</span>;
+  }
+  return section;
+}
+
+const INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, [role="button"], [role="combobox"], [tabindex]';
+
+/**
+ * @manifest Text input bound to Form context, with optional leading/trailing sections (icon or affix text inside the border), a clear button, and a password reveal toggle
+ * @manifestCategory Form Controls
+ */
+// forwardRef (#759), like every Form control: a consumer needs the element to
+// focus it, e.g. the first invalid field after a failed submit. React 18 is
+// still in the peer range, so `ref` can't just be a prop.
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(({ id, name: propName, type = 'text', cornerRadiusMode, onBlur, onChange, value: externalValue, defaultValue, overrides, squareCorners, size = 'md', clearable = false, onClear, leadingSection, trailingSection, revealable = true, ...props }, ref) => {
   const fieldCtx = useContext(FieldContext);
   const name = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
   const registerField = formContext?.registerField;
   const { vars: inputVars } = useSliceOverrides(InputThemeSlice, overrides);
+  const strings = useLocaleStrings().input;
   useInjectInteractionStyles();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // The clear button and the section click-to-focus need their own ref to
+  // the same <input>; hand the consumer that element rather than merging refs.
+  useImperativeHandle(ref, () => inputRef.current as HTMLInputElement, []);
 
   // Depends on registerField itself, not the whole formContext object —
   // see RadioGroup.tsx for why (Form recreates that object on every render,
   // so depending on it re-fires this on every keystroke anywhere in the
   // form; registerField is stable for the form's lifetime).
   useEffect(() => {
-    if (name && registerField) registerField(name);
+    if (name && registerField) registerField(name, defaultValue ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a typed seed (#667), read once like any default
   }, [name, registerField]);
 
-  const value = externalValue !== undefined ? externalValue : (name && formContext ? formContext.values[name] ?? '' : '');
+  // Issue #614: with neither a controlled `value` nor a Form binding, the
+  // value used to fall back to a constant '' -- the element stayed
+  // controlled with nowhere to write, so a standalone <Input> silently
+  // discarded every keystroke. Local state (seeded from `defaultValue`) is
+  // that missing third source; the controlled and Form-bound paths ignore it.
+  const isFormBound = !!(name && formContext);
+  const isUncontrolled = externalValue === undefined && !isFormBound;
+  const [localValue, setLocalValue] = useState(defaultValue ?? '');
+  const value = externalValue !== undefined ? externalValue : (isFormBound ? formContext!.values[name] ?? '' : localValue);
   const isError = name && formContext ? formContext.touched[name] && !!formContext.errors[name] : false;
+  // Not `!!value` -- a numeric controlled value of exactly 0 (a real,
+  // valid input.type="number" value) is falsy but not empty; the clear
+  // button must still show for it.
+  const hasValue = value !== '' && value !== undefined && value !== null;
+
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
+  const showRevealToggle = type === 'password' && revealable;
+  const effectiveType = showRevealToggle && passwordRevealed ? 'text' : type;
+  const hasLeading = leadingSection !== undefined && leadingSection !== null && leadingSection !== false;
+  const hasTrailing = trailingSection !== undefined && trailingSection !== null && trailingSection !== false;
+  // Any section or the reveal toggle switches to the grouped layout below;
+  // everything else keeps its existing DOM shape exactly (bare <input>, or
+  // #428's positioned clearable wrapper).
+  const grouped = hasLeading || hasTrailing || showRevealToggle;
+  const disabled = useFieldsetDisabled(props.disabled);
+  const showClearButton = clearable && hasValue && !disabled && !props.readOnly;
 
   // squareCorners was previously destructured but never actually applied
   // anywhere below — dead since the prop was added, confirmed by reading
@@ -353,50 +629,256 @@ export const Input: React.FC<InputProps> = ({ id, name: propName, type = 'text',
   const uiGroupSquareCorners = useUIGroupSquareCorners();
   const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
 
-  return (
+  // Real typing forwards the real SyntheticEvent unchanged -- a consumer's
+  // handler may call e.preventDefault()/e.stopPropagation() or read other
+  // target fields (name, id) beyond value, and a synthesized stand-in would
+  // silently break all of that.
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (name && formContext) formContext.setFieldValue(name, e.target.value);
+    else if (isUncontrolled) setLocalValue(e.target.value);
+    if (onChange) onChange(e);
+  };
+
+  // The clear button has no real DOM change event to forward, so it
+  // synthesizes one -- Input is always controlled (`value` above already
+  // falls back to '' at minimum even with no `externalValue`/Form binding),
+  // so there's no native DOM value to separately reset, and the next render
+  // already picks up whatever the write below settles on. Still includes
+  // name/id alongside value (mirrored onto both target and currentTarget)
+  // so a generic multi-input handler keyed on `e.target.name` doesn't break
+  // just because this particular change came from the clear button rather
+  // than a keystroke -- and still provides no-op preventDefault/
+  // stopPropagation so a handler that unconditionally calls either doesn't
+  // throw against this synthesized stand-in.
+  const handleClear = () => {
+    if (name && formContext) formContext.setFieldValue(name, '');
+    else if (isUncontrolled) setLocalValue('');
+    if (onChange) {
+      const mockTarget = { value: '', name: name || undefined, id: id ?? (name || undefined) };
+      onChange({
+        target: mockTarget,
+        currentTarget: mockTarget,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as unknown as React.ChangeEvent<HTMLInputElement>);
+    }
+    onClear?.();
+    inputRef.current?.focus();
+  };
+
+  // Explicit per-corner longhands, always all four -- same reason as
+  // Button's own identical pattern (see its comment): a sparse spread would
+  // add/remove style keys across renders as squareCorners changes, which
+  // React warns about.
+  const cornerStyle: React.CSSProperties = {
+    borderTopLeftRadius: cornerOverrides.borderTopLeftRadius ?? currentRadius,
+    borderTopRightRadius: cornerOverrides.borderTopRightRadius ?? currentRadius,
+    borderBottomLeftRadius: cornerOverrides.borderBottomLeftRadius ?? currentRadius,
+    borderBottomRightRadius: cornerOverrides.borderBottomRightRadius ?? currentRadius,
+  };
+  const borderStyle = `var(--ai-input-border-width, 0.0625rem) solid ${isError ? 'var(--ai-subtheme-error, #ef4444)' : 'var(--ai-border, #d1d5db)'}`;
+  const basePadding = resolveControlPadding(size, 'var(--ai-input-padding, 0.5rem 0.75rem)');
+
+  const inputElement = (
     <input
       {...props}
+      // After the spread, so the fieldset's disabled can't be overridden by
+      // (or lost to) the consumer's own prop.
+      disabled={disabled}
+      ref={inputRef}
       id={id ?? (name || undefined)}
       name={name || undefined}
-      type={type}
+      type={effectiveType}
       value={value}
       aria-invalid={isError || undefined}
       aria-describedby={isError ? `${name}-error` : undefined}
-      className="ai-focus-ring"
-      onChange={e => {
-        if (name && formContext) formContext.setFieldValue(name, e.target.value);
-        if (onChange) onChange(e);
-      }}
+      // In the grouped layout the wrapper owns the border and focus ring
+      // (`.ai-focus-ring` matches `:has(:focus-visible)`, so it lights up
+      // for the input inside it) -- a second ring on the borderless input
+      // itself would draw inside the group's own.
+      className={grouped ? undefined : 'ai-focus-ring'}
+      onChange={handleChange}
       onBlur={e => {
         if (name && formContext) formContext.setFieldTouched(name, true);
         if (onBlur) onBlur(e);
       }}
-      style={{
+      style={grouped ? {
+        flex: 1,
+        minWidth: 0,
+        alignSelf: 'stretch',
+        padding: basePadding,
+        // The section side's own padding provides the gap to the section.
+        paddingLeft: hasLeading ? '0.375rem' : undefined,
+        paddingRight: hasTrailing || showClearButton || showRevealToggle ? '0.375rem' : undefined,
+        // The wrapper already dims; the input just has to not undo its cursor.
+        cursor: disabled ? 'not-allowed' : undefined,
+        border: 'none',
+        borderRadius: 0,
+        background: 'transparent',
+        color: 'var(--ai-text-primary, #111827)',
+        fontSize: CONTROL_FONT_SIZE_VAR[size],
+        outline: 'none',
+        boxSizing: 'border-box',
+        ...inputVars,
+      } : {
         width: '100%',
-        padding: resolveControlPadding(size, 'var(--ai-input-padding, 0.5rem 0.75rem)'),
-        // Explicit per-corner longhands, always all four -- same reason as
-        // Button's own identical pattern (see its comment): a sparse
-        // spread would add/remove style keys across renders as
-        // squareCorners changes, which React warns about.
-        borderTopLeftRadius: cornerOverrides.borderTopLeftRadius ?? currentRadius,
-        borderTopRightRadius: cornerOverrides.borderTopRightRadius ?? currentRadius,
-        borderBottomLeftRadius: cornerOverrides.borderBottomLeftRadius ?? currentRadius,
-        borderBottomRightRadius: cornerOverrides.borderBottomRightRadius ?? currentRadius,
-        border: `var(--ai-input-border-width, 0.0625rem) solid ${isError ? 'var(--ai-subtheme-error, #ef4444)' : 'var(--ai-border, #d1d5db)'}`,
+        padding: basePadding,
+        // Extra trailing room for the clear button so typed text never
+        // renders underneath it -- only when it can ever actually show.
+        paddingRight: clearable ? '1.75rem' : undefined,
+        ...cornerStyle,
+        border: borderStyle,
         background: 'var(--ai-bg-surface, #ffffff)',
         color: 'var(--ai-text-primary, #111827)',
         fontSize: CONTROL_FONT_SIZE_VAR[size],
         outline: 'none',
         boxSizing: 'border-box',
-        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        // Same dimmed + not-allowed look as the grouped layout's wrapper,
+        // Checkbox and Select.
+        cursor: disabled ? 'not-allowed' : undefined,
+        opacity: disabled ? 0.6 : undefined,
+        // No inline transition -- .ai-focus-ring's own shared rule
+        // (interactionStyles.ts) already covers border-color and
+        // box-shadow and is !important, so this would be silently
+        // discarded outright, not just redundant (issue #411).
         ...inputVars,
       }}
     />
   );
-};
+
+  const clearButton = showClearButton && (
+    <button
+      type="button"
+      aria-label={strings.clear}
+      // Mouse-only, matching Combobox's own established clear button
+      // (strings.clearSelection) -- Backspace/select-all already
+      // provide a keyboard path, so this doesn't add an extra
+      // required Tab stop for something with an easy alternative.
+      tabIndex={-1}
+      onClick={handleClear}
+      style={{
+        ...ICON_WRAPPER_STYLE,
+        ...(grouped
+          ? { flexShrink: 0, marginRight: showRevealToggle ? '0.125rem' : '0.5rem' }
+          : { position: 'absolute', top: '50%', right: '0.5rem', transform: 'translateY(-50%)' }),
+        justifyContent: 'center',
+        width: '1.125rem',
+        height: '1.125rem',
+        background: 'var(--ai-bg-container, #f3f4f6)',
+        border: 'none',
+        borderRadius: 'var(--ai-radius-xl, 9999px)',
+        cursor: 'pointer',
+        color: 'var(--ai-text-secondary, #6b7280)',
+        fontSize: '0.6875rem',
+        padding: 0,
+      }}
+    >
+      ✕
+    </button>
+  );
+
+  if (!grouped) {
+    // Only wrapped in a positioning container when clearable is actually
+    // set (issue #428) -- every existing non-clearable <Input> usage keeps
+    // its current bare <input> DOM shape unchanged.
+    if (!clearable) return inputElement;
+    return (
+      <div style={{ position: 'relative', width: '100%' }}>
+        {inputElement}
+        {clearButton}
+      </div>
+    );
+  }
+
+  // Clicking a non-interactive part of a section (an icon, affix text)
+  // focuses the input, like clicking inside a real field would. mousedown +
+  // preventDefault rather than click, so focus never bounces off the input
+  // first; an interactive control inside a section keeps its own behavior.
+  const focusInputFromSection = (e: React.MouseEvent<HTMLElement>) => {
+    if ((e.target as Element).closest(INTERACTIVE_SELECTOR)) return;
+    e.preventDefault();
+    inputRef.current?.focus();
+  };
+  const sectionStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    color: 'var(--ai-text-secondary, #6b7280)',
+    fontSize: CONTROL_FONT_SIZE_VAR[size],
+    lineHeight: 1,
+  };
+
+  return (
+    <div
+      className="ai-focus-ring"
+      data-input-group=""
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        width: '100%',
+        ...cornerStyle,
+        border: borderStyle,
+        background: 'var(--ai-bg-surface, #ffffff)',
+        boxSizing: 'border-box',
+        cursor: disabled ? 'not-allowed' : 'text',
+        opacity: disabled ? 0.6 : undefined,
+        ...inputVars,
+      }}
+    >
+      {hasLeading && (
+        <span data-input-section="leading" onMouseDown={focusInputFromSection} style={{ ...sectionStyle, paddingLeft: '0.625rem' }}>
+          {renderInputSection(leadingSection)}
+        </span>
+      )}
+      {inputElement}
+      {hasTrailing && (
+        <span
+          data-input-section="trailing"
+          onMouseDown={focusInputFromSection}
+          style={{ ...sectionStyle, paddingRight: showClearButton || showRevealToggle ? '0.375rem' : '0.625rem' }}
+        >
+          {renderInputSection(trailingSection)}
+        </span>
+      )}
+      {clearButton}
+      {showRevealToggle && (
+        <button
+          type="button"
+          aria-label={strings.showPassword}
+          aria-pressed={passwordRevealed}
+          disabled={disabled}
+          // Keyboard-reachable, unlike the clear button -- there's no other
+          // keyboard path to reveal the value. mousedown's default is
+          // suppressed so a mouse click keeps focus (and the caret) in the
+          // input instead of moving it onto this button.
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => setPasswordRevealed(r => !r)}
+          className="ai-focus-ring"
+          style={{
+            ...ICON_WRAPPER_STYLE,
+            flexShrink: 0,
+            alignSelf: 'stretch',
+            justifyContent: 'center',
+            padding: '0 0.625rem',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+            color: 'var(--ai-text-secondary, #6b7280)',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: CONTROL_FONT_SIZE_VAR[size],
+          }}
+        >
+          {passwordRevealed ? <EyeOff size="1.1em" aria-hidden="true" /> : <Eye size="1.1em" aria-hidden="true" />}
+        </button>
+      )}
+    </div>
+  );
+});
+Input.displayName = 'Input';
 
 // --- Select ---
-// Select is imported and exported from ./Select (Radix UI Primitive)
+// Select is imported and exported from ./Select
 
 /** Props for `<Checkbox>` — boolean toggle bound to Form context via `name`. */
 export interface CheckboxProps {
@@ -406,69 +888,108 @@ export interface CheckboxProps {
   label?: ReactNode;
   /** Controlled checked state. */
   checked?: boolean;
-  /** Change handler. Receives a synthetic event with `target.checked`. */
-  onChange?: (e: { target: { checked: boolean } }) => void;
+  /** Initial checked state when neither `checked` nor a Form binding is present (uncontrolled). @default false */
+  defaultChecked?: boolean;
+  /** Change handler. Receives the new boolean value directly, like `<Switch>`'s. */
+  onChange?: (checked: boolean) => void;
   /** Per-instance size override. Shared with `<Switch>`. */
   overrides?: Partial<ToggleControlSliceState>;
+  /**
+   * Explicit corner-squaring override, e.g. for a `<UIGroup>` member.
+   * See `<Button>`'s own identical prop for the general pattern.
+   */
+  squareCorners?: SquareCornerOption;
+  /** Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too. @default false */
+  disabled?: boolean;
 }
 
-export const Checkbox: React.FC<CheckboxProps> = ({ name: propName, label, checked: externalChecked, onChange, overrides }) => {
+/**
+ * @manifest Boolean checkbox bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable checkbox element
+ * @manifestCategory Form Controls
+ */
+export const Checkbox = React.forwardRef<HTMLElement, CheckboxProps>(({ name: propName, label, checked: externalChecked, defaultChecked = false, onChange, overrides, squareCorners, disabled: disabledProp }, ref) => {
+  const disabled = useFieldsetDisabled(disabledProp);
   const fieldCtx = useContext(FieldContext);
   const name = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
   const registerField = formContext?.registerField;
   const checkboxVars = getSparseVariables(ToggleControlThemeSlice, overrides ?? {});
   useInjectInteractionStyles();
+  const uiGroupSquareCorners = useUIGroupSquareCorners();
+  const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
 
   // Depends on registerField itself, not the whole formContext object —
   // see RadioGroup.tsx for why (Form recreates that object on every render,
   // so depending on it re-fires this on every keystroke anywhere in the
   // form; registerField is stable for the form's lifetime).
   useEffect(() => {
-    if (name && registerField) registerField(name);
+    if (name && registerField) registerField(name, defaultChecked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a typed seed (#667), read once like any default
   }, [name, registerField]);
 
-  const checked = externalChecked !== undefined ? externalChecked : (name && formContext ? !!formContext.values[name] : false);
+  // Issue #614 -- see Input's identical local-state fallback.
+  const isFormBound = !!(name && formContext);
+  const [localChecked, setLocalChecked] = useState(defaultChecked);
+  const checked = externalChecked !== undefined ? externalChecked : (isFormBound ? !!formContext!.values[name] : localChecked);
 
   const handleCheckedChange = (val: boolean) => {
     if (name && formContext) {
       formContext.setFieldValue(name, val);
       formContext.setFieldTouched(name, true);
+    } else if (externalChecked === undefined) {
+      setLocalChecked(val);
     }
-    if (onChange) onChange({ target: { checked: val } });
+    if (onChange) onChange(val);
   };
 
   return (
     <Label>
-      <CheckboxPrimitive.Root
+      <BaseCheckbox.Root
+        ref={ref}
         id={name || undefined}
         checked={checked}
+        disabled={disabled}
         onCheckedChange={handleCheckedChange}
         className="ai-focus-ring"
         style={{
           all: 'unset',
           width: 'var(--ai-togglecontrol-checkbox-size, 1.125rem)',
           height: 'var(--ai-togglecontrol-checkbox-size, 1.125rem)',
-          borderRadius: 'var(--ai-radius-sm, 0.25rem)',
+          // Explicit per-corner longhands, always all four -- lets
+          // cornerOverrides below (a `<UIGroup>` member) win on just the
+          // corners it names. See Button's own identical comment on why
+          // this can't be a plain `borderRadius` shorthand mixed with a
+          // sometimes-present longhand override.
+          borderTopLeftRadius: 'var(--ai-radius-sm, 0.25rem)',
+          borderTopRightRadius: 'var(--ai-radius-sm, 0.25rem)',
+          borderBottomLeftRadius: 'var(--ai-radius-sm, 0.25rem)',
+          borderBottomRightRadius: 'var(--ai-radius-sm, 0.25rem)',
           border: `0.0625rem solid ${checked ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)'}`,
           background: checked ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-bg-surface, #ffffff)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
           boxSizing: 'border-box',
-          transition: 'all 0.15s ease',
+          // No inline transition -- .ai-focus-ring's own shared rule
+          // (interactionStyles.ts) already covers background-color and
+          // border-color and is !important, so this (like the `all: 'unset'`
+          // above) would be silently discarded outright, not just
+          // redundant (issue #411).
           ...checkboxVars,
+          ...cornerOverrides,
         }}
       >
-        <CheckboxPrimitive.Indicator style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <BaseCheckbox.Indicator aria-hidden="true" style={{ color: 'var(--ai-color-primary-text, #ffffff)', fontSize: '0.75rem', fontWeight: 'var(--ai-font-weight-black, 900)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           ✓
-        </CheckboxPrimitive.Indicator>
-      </CheckboxPrimitive.Root>
-      {label && <span>{label}</span>}
+        </BaseCheckbox.Indicator>
+      </BaseCheckbox.Root>
+      {label && <span style={disabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}>{label}</span>}
     </Label>
   );
-};
+});
+Checkbox.displayName = 'Checkbox';
 
 /** Props for `<Switch>` — boolean toggle with a sliding track, bound to Form context via `name`. */
 export interface SwitchProps {
@@ -478,34 +999,56 @@ export interface SwitchProps {
   label?: ReactNode;
   /** Controlled checked state. */
   checked?: boolean;
-  /** Change handler. Receives the new boolean value directly. */
+  /** Initial checked state when neither `checked` nor a Form binding is present (uncontrolled). @default false */
+  defaultChecked?: boolean;
+  /** Change handler. Receives the new boolean value directly, like `<Checkbox>`'s. */
   onChange?: (checked: boolean) => void;
   /** Per-instance size override. Shared with `<Checkbox>`. */
   overrides?: Partial<ToggleControlSliceState>;
+  /**
+   * Explicit corner-squaring override, e.g. for a `<UIGroup>` member.
+   * See `<Button>`'s own identical prop for the general pattern.
+   */
+  squareCorners?: SquareCornerOption;
+  /** Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too. @default false */
+  disabled?: boolean;
 }
 
-export const Switch: React.FC<SwitchProps> = ({ name: propName, label, checked: externalChecked, onChange, overrides }) => {
+/**
+ * @manifest Boolean on/off switch with a sliding track, bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable switch element
+ * @manifestCategory Form Controls
+ */
+export const Switch = React.forwardRef<HTMLElement, SwitchProps>(({ name: propName, label, checked: externalChecked, defaultChecked = false, onChange, overrides, squareCorners, disabled: disabledProp }, ref) => {
+  const disabled = useFieldsetDisabled(disabledProp);
   const fieldCtx = useContext(FieldContext);
   const name = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
   const registerField = formContext?.registerField;
   const switchVars = getSparseVariables(ToggleControlThemeSlice, overrides ?? {});
   useInjectInteractionStyles();
+  const uiGroupSquareCorners = useUIGroupSquareCorners();
+  const cornerOverrides = resolveSquareCorners(squareCorners ?? uiGroupSquareCorners);
 
   // Depends on registerField itself, not the whole formContext object —
   // see RadioGroup.tsx for why (Form recreates that object on every render,
   // so depending on it re-fires this on every keystroke anywhere in the
   // form; registerField is stable for the form's lifetime).
   useEffect(() => {
-    if (name && registerField) registerField(name);
+    if (name && registerField) registerField(name, defaultChecked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a typed seed (#667), read once like any default
   }, [name, registerField]);
 
-  const checked = externalChecked !== undefined ? externalChecked : (name && formContext ? !!formContext.values[name] : false);
+  // Issue #614 -- see Input's identical local-state fallback.
+  const isFormBound = !!(name && formContext);
+  const [localChecked, setLocalChecked] = useState(defaultChecked);
+  const checked = externalChecked !== undefined ? externalChecked : (isFormBound ? !!formContext!.values[name] : localChecked);
 
   const handleCheckedChange = (val: boolean) => {
     if (name && formContext) {
       formContext.setFieldValue(name, val);
       formContext.setFieldTouched(name, true);
+    } else if (externalChecked === undefined) {
+      setLocalChecked(val);
     }
     if (onChange) onChange(val);
   };
@@ -516,27 +1059,42 @@ export const Switch: React.FC<SwitchProps> = ({ name: propName, label, checked: 
     // exactly matching what this component's own hand-rolled <label> used
     // before both were consolidated onto the shared <Label> component.
     <Label overrides={{ gap: 'spacious' }}>
-      <SwitchPrimitive.Root
+      <BaseSwitch.Root
+        ref={ref}
         id={name || undefined}
         checked={checked}
+        disabled={disabled}
         onCheckedChange={handleCheckedChange}
         className="ai-focus-ring"
         style={{
           all: 'unset',
           width: 'var(--ai-togglecontrol-switch-width, 2.375rem)',
           height: 'var(--ai-togglecontrol-switch-height, 1.25rem)',
-          borderRadius: 'var(--ai-radius-lg, 0.625rem)',
+          // Explicit per-corner longhands, always all four -- see
+          // Checkbox's own identical comment just above in this file for
+          // why (a `<UIGroup>` member's cornerOverrides needs to win on
+          // just the corners it names, never mixed with a plain
+          // `borderRadius` shorthand).
+          borderTopLeftRadius: 'var(--ai-radius-lg, 0.625rem)',
+          borderTopRightRadius: 'var(--ai-radius-lg, 0.625rem)',
+          borderBottomLeftRadius: 'var(--ai-radius-lg, 0.625rem)',
+          borderBottomRightRadius: 'var(--ai-radius-lg, 0.625rem)',
           background: checked ? 'var(--ai-color-primary, #3b82f6)' : 'var(--ai-border, #d1d5db)',
           position: 'relative',
-          transition: 'background 0.2s ease',
-          cursor: 'pointer',
+          // No inline transition -- .ai-focus-ring's own shared rule
+          // (interactionStyles.ts) already covers background-color and is
+          // !important, so this (like the `all: 'unset'` above) would be
+          // silently discarded outright, not just redundant (issue #411).
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
           display: 'inline-flex',
           alignItems: 'center',
           boxSizing: 'border-box',
           ...switchVars,
+          ...cornerOverrides,
         }}
       >
-        <SwitchPrimitive.Thumb
+        <BaseSwitch.Thumb
           style={{
             display: 'block',
             width: 'var(--ai-togglecontrol-switch-thumb-size, 1rem)',
@@ -550,15 +1108,19 @@ export const Switch: React.FC<SwitchProps> = ({ name: propName, label, checked: 
             transform: checked
               ? 'translateX(var(--ai-togglecontrol-switch-thumb-travel, 1.25rem))'
               : 'translateX(var(--ai-togglecontrol-switch-thumb-inset, 0.125rem))',
-            transition: 'transform 0.2s ease',
+            // No shared class on this element (it's BaseSwitch.Thumb,
+            // not .Root) -- no collision, so this transition genuinely
+            // applies, just needed the floored duration token (issue #411).
+            transition: 'transform var(--ai-transition-duration-normal, 0.2s) var(--ai-transition-easing, ease)',
             boxShadow: 'var(--ai-shadow-sm, 0 0.0625rem 0.1875rem rgba(0,0,0,0.2))',
           }}
         />
-      </SwitchPrimitive.Root>
-      {label && <span>{label}</span>}
+      </BaseSwitch.Root>
+      {label && <span style={disabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}>{label}</span>}
     </Label>
   );
-};
+});
+Switch.displayName = 'Switch';
 
 /** Props for `<Textarea>` — multi-line text input bound to Form context via `name`. */
 export interface TextareaProps extends StyleFree<Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'name'>> {
@@ -572,7 +1134,11 @@ export interface TextareaProps extends StyleFree<Omit<TextareaHTMLAttributes<HTM
   size?: ControlSize;
 }
 
-export const Textarea: React.FC<TextareaProps> = ({ id, name: propName, rows = 3, cornerRadiusMode, onChange, onBlur, value: externalValue, overrides, size = 'md', ...props }) => {
+/**
+ * @manifest Multi-line text input bound to Form context, sized and themed like Input
+ * @manifestCategory Form Controls
+ */
+export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(({ id, name: propName, rows = 3, cornerRadiusMode, onChange, onBlur, value: externalValue, defaultValue, overrides, size = 'md', ...props }, ref) => {
   const fieldCtx = useContext(FieldContext);
   const name = propName || fieldCtx.name || '';
   const formContext = useOptionalFormContext();
@@ -585,15 +1151,23 @@ export const Textarea: React.FC<TextareaProps> = ({ id, name: propName, rows = 3
   // so depending on it re-fires this on every keystroke anywhere in the
   // form; registerField is stable for the form's lifetime).
   useEffect(() => {
-    if (name && registerField) registerField(name);
+    if (name && registerField) registerField(name, defaultValue ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a typed seed (#667), read once like any default
   }, [name, registerField]);
 
-  const value = externalValue !== undefined ? externalValue : (name && formContext ? formContext.values[name] ?? '' : '');
+  // Issue #614 -- see Input's identical local-state fallback.
+  const isFormBound = !!(name && formContext);
+  const [localValue, setLocalValue] = useState(defaultValue ?? '');
+  const value = externalValue !== undefined ? externalValue : (isFormBound ? formContext!.values[name] ?? '' : localValue);
   const isError = name && formContext ? formContext.touched[name] && !!formContext.errors[name] : false;
+
+  const disabled = useFieldsetDisabled(props.disabled);
 
   return (
     <textarea
       {...props}
+      disabled={disabled}
+      ref={ref}
       id={id ?? (name || undefined)}
       name={name || undefined}
       rows={rows}
@@ -603,6 +1177,7 @@ export const Textarea: React.FC<TextareaProps> = ({ id, name: propName, rows = 3
       className="ai-focus-ring"
       onChange={e => {
         if (name && formContext) formContext.setFieldValue(name, e.target.value);
+        else if (externalValue === undefined) setLocalValue(e.target.value);
         if (onChange) onChange(e);
       }}
       onBlur={e => {
@@ -625,4 +1200,5 @@ export const Textarea: React.FC<TextareaProps> = ({ id, name: propName, rows = 3
       }}
     />
   );
-};
+});
+Textarea.displayName = 'Textarea';

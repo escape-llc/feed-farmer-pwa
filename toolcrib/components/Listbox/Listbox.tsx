@@ -41,8 +41,7 @@ export interface ListboxOptionData {
  * `aria-activedescendant` — the same contract `Combobox` already relied on
  * internally before this was extracted, now available standalone for a
  * custom search-results dropdown, a mentions widget, or any other picker
- * that needs a keyboard-navigable option list with no matching Radix
- * primitive to build on (Radix ships no Combobox/Listbox primitive at all).
+ * that needs a keyboard-navigable option list.
  */
 export interface ListboxProps {
   /** DOM id for the listbox container. Each option's own id is derived from this (`${id}-option-${index}`) — predictable so a caller can compute the active option's id for `aria-activedescendant` without Listbox needing to expose it separately. */
@@ -74,14 +73,12 @@ export interface ListboxProps {
   /** Control size, standardized with `<Button>` and every other sized control — drives the option row's font-size. @default 'md' */
   size?: ControlSize;
   /**
-   * Accessible name for the listbox. Omit when a caller already establishes
-   * one via its own `aria-controls`/`aria-activedescendant` relationship
-   * from a labeled control (e.g. `Combobox`'s own input, itself named
-   * through a wrapping `<FormField label="...">` — the same convention
-   * every other Form control in this toolkit relies on rather than a
-   * standalone label prop of its own). Required for a meaningful
-   * accessible name in any other standalone use — a `<div role="listbox">`
-   * with neither this nor `aria-labelledby` has none at all.
+   * Accessible name for the listbox. A listbox always needs one: a
+   * controlling field's `aria-controls` doesn't name it. When it's the popup
+   * of a field, give it the field's name (Combobox and Select pass their
+   * `aria-label`, or the FormField label via `aria-labelledby`). A
+   * `<div role="listbox">` with neither this nor `aria-labelledby` has no
+   * name at all.
    */
   'aria-label'?: string;
   /** Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. */
@@ -89,7 +86,7 @@ export interface ListboxProps {
 }
 
 /**
- * @manifest Keyboard-navigable, controlled option list with no matching Radix primitive to build on — extracted from Combobox's own hand-built listbox, now usable standalone
+ * @manifest Keyboard-navigable, controlled option list — extracted from Combobox's own hand-built listbox, now usable standalone
  * @manifestConstraints Purely presentational — owns no keyboard-navigation state; the caller drives `activeIndex` and reads back `${id}-option-${index}` for its own `aria-activedescendant`
  * @manifestCategory Form Controls
  */
@@ -153,7 +150,7 @@ export const Listbox: React.FC<ListboxProps> = ({
             open (aria-compliance-review's own §1 coverage-gap finding).
             aria-disabled (not omitting a role, or disabled on a real
             <button>) keeps it correctly non-interactive without breaking
-            the required-children contract -- mousedown never reaches
+            the required-children contract -- a click never reaches
             onSelect for it since it's not part of options.map below. */}
         {loading && (
           <div role="option" aria-disabled="true" style={{ padding: itemPadding, fontSize: '0.8125rem', color: 'var(--ai-text-secondary, #6b7280)' }}>
@@ -176,8 +173,12 @@ export const Listbox: React.FC<ListboxProps> = ({
                 aria-selected={isSelected}
                 data-highlighted={index === activeIndex ? '' : undefined}
                 className="ai-menu-item"
-                onMouseDown={e => {
-                  e.preventDefault();
+                // Press only keeps focus where it is (the combobox input or
+                // trigger); the pick happens on click (#697). That matches a
+                // native control: a user who presses on an option can still
+                // cancel by moving off it before releasing.
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => {
                   if (!opt.disabled) onSelect(opt);
                 }}
                 style={{

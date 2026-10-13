@@ -70,7 +70,7 @@ export default function App() {
               <UIGroup>
                 <Combobox
                   placeholder="Search articles… (⌘K for commands)"
-                  ariaLabel="Search articles"
+                  aria-label="Search articles"
                   options={searchOptions}
                   value={searchValue}
                   onChange={(val) => {
@@ -119,7 +119,7 @@ export default function App() {
                       <Button variant="outline" size="sm" icon="🗑️" aria-label="Reset" />
                     </Tooltip>
                   }
-                  ariaLabel="Confirm reset"
+                  aria-label="Confirm reset"
                 >
                   <AlertDialog.Header>Reset All Data?</AlertDialog.Header>
                   <AlertDialog.Body>

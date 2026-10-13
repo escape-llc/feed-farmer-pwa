@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.14.0",
+  "version": "0.16.0",
   "description": "AI-consumable component manifest for React UI toolkit. All units are rem unless noted.",
   "themeSystem": {
     "colorSpace": "HSV",
@@ -26,6 +26,8 @@
       "--ai-appshell-main-padding",
       "--ai-appshell-sidebar-padding",
       "--ai-appshell-sidebar-width",
+      "--ai-arrow-bg",
+      "--ai-arrow-border",
       "--ai-avatar-radius",
       "--ai-bg-container",
       "--ai-bg-primary",
@@ -56,6 +58,8 @@
       "--ai-chart-series-7",
       "--ai-chart-series-8",
       "--ai-chart-tooltip-shadow",
+      "--ai-choice-separator",
+      "--ai-choice-separator-selected",
       "--ai-collapsible-content-padding",
       "--ai-collapsible-header-padding",
       "--ai-color-accent",
@@ -100,12 +104,14 @@
       "--ai-font-weight-normal",
       "--ai-font-weight-semibold",
       "--ai-gallery-thumbnail-aspect-ratio",
+      "--ai-gap-sm",
       "--ai-hover-shadow",
       "--ai-hover-transform",
       "--ai-hovercard-border",
       "--ai-hovercard-shadow",
       "--ai-input-border-width",
       "--ai-input-padding",
+      "--ai-kbd-border-bottom-width",
       "--ai-label-gap",
       "--ai-label-weight",
       "--ai-layout-border-bottom-left-radius",
@@ -147,6 +153,8 @@
       "--ai-rating-gap",
       "--ai-rating-icon-size",
       "--ai-scrollarea-thumb-size",
+      "--ai-scrollbar-thumb",
+      "--ai-scrollbar-track",
       "--ai-select-item-padding",
       "--ai-select-trigger-padding",
       "--ai-separator-thickness",
@@ -193,13 +201,19 @@
       "--ai-table-header-padding",
       "--ai-table-row-height",
       "--ai-table-stripe-bg",
+      "--ai-text-font-mono",
       "--ai-text-primary",
       "--ai-text-secondary",
+      "--ai-text-size-lg",
+      "--ai-text-size-md",
+      "--ai-text-size-sm",
+      "--ai-text-size-xl",
+      "--ai-text-size-xs",
       "--ai-theme-transition-properties",
       "--ai-toast-accent-width",
-      "--ai-toast-collapse-duration",
       "--ai-toast-exit-duration",
       "--ai-toast-shadow",
+      "--ai-toast-stack-duration",
       "--ai-toast-swipe-exit-duration",
       "--ai-toggle-gap",
       "--ai-toggle-padding",
@@ -425,6 +439,14 @@
       {
         "id": "livingColor",
         "name": "🌊 Living Color (Ambient Breathe & Glow)"
+      },
+      {
+        "id": "text",
+        "name": "🔡 Text Size Ramp"
+      },
+      {
+        "id": "kbd",
+        "name": "⌨️ Keyboard Key Appearance"
       }
     ]
   },
@@ -453,6 +475,10 @@
       {
         "name": "element:intersected",
         "payload": "{ id?: string; target: HTMLElement; isIntersecting: boolean; ratio: number }"
+      },
+      {
+        "name": "element:mutated",
+        "payload": "{ id?: string; target: Node; type: MutationRecordType; attributeName: string | null; oldValue: string | null }"
       },
       {
         "name": "viewport:resized",
@@ -512,11 +538,15 @@
       },
       {
         "name": "toast:shown",
-        "payload": "{ id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent' }"
+        "payload": "{ id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent'; loading?: boolean }"
+      },
+      {
+        "name": "toast:updated",
+        "payload": "{ id: string; type: SubthemeName; message: string; loading?: boolean }"
       },
       {
         "name": "toast:added",
-        "payload": "{ id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent' }"
+        "payload": "{ id: string; type: SubthemeName; message: string; priority?: 'low' | 'medium' | 'high' | 'urgent'; loading?: boolean }"
       },
       {
         "name": "toast:expired",
@@ -611,6 +641,10 @@
         "payload": "{ name?: string; value: number }"
       },
       {
+        "name": "rangeslider:changed",
+        "payload": "{ name?: string; value: [number, number] }"
+      },
+      {
         "name": "toggle:changed",
         "payload": "{ name?: string; pressed: boolean }"
       },
@@ -627,8 +661,32 @@
         "payload": "{ name?: string; value: string | null }"
       },
       {
+        "name": "daterangepicker:changed",
+        "payload": "{ name?: string; value: { start: string; end: string } | null }"
+      },
+      {
+        "name": "rangecalendar:changed",
+        "payload": "{ name?: string; value: { start: string; end: string } }"
+      },
+      {
+        "name": "alert:dismissed",
+        "payload": "{ id?: string; subtheme?: string }"
+      },
+      {
         "name": "timefield:changed",
         "payload": "{ name?: string; value: string | null }"
+      },
+      {
+        "name": "numberfield:changed",
+        "payload": "{ name?: string; value: number | null }"
+      },
+      {
+        "name": "checkboxgroup:changed",
+        "payload": "{ name?: string; value: string[] }"
+      },
+      {
+        "name": "otpfield:changed",
+        "payload": "{ name?: string; value: string; complete: boolean }"
       },
       {
         "name": "togglegroup:changed",
@@ -668,7 +726,11 @@
       },
       {
         "name": "datatable:sorted",
-        "payload": "{ id?: string; key: string | null; direction: 'asc' | 'desc' }"
+        "payload": "{ id?: string; sortBy: { key: string; direction: 'asc' | 'desc' }[] }"
+      },
+      {
+        "name": "datatable:filtered",
+        "payload": "{ id?: string; value: string; matchCount: number }"
       },
       {
         "name": "datatable:paginated",
@@ -685,6 +747,38 @@
       {
         "name": "datatable:row_clicked",
         "payload": "{ id?: string; index: number }"
+      },
+      {
+        "name": "datatable:row_command",
+        "payload": "{ id?: string; command: string; key: string; index: number }"
+      },
+      {
+        "name": "datatable:density_changed",
+        "payload": "{ id?: string; density: 'compact' | 'normal' | 'spacious' }"
+      },
+      {
+        "name": "datatable:end_reached",
+        "payload": "{ id?: string; loadedCount: number }"
+      },
+      {
+        "name": "datatable:exported",
+        "payload": "{ id?: string; rowCount: number }"
+      },
+      {
+        "name": "datatable:columns_changed",
+        "payload": "{ id?: string; hiddenColumns: string[] }"
+      },
+      {
+        "name": "datatable:row_edit_started",
+        "payload": "{ id?: string; key: string; index: number }"
+      },
+      {
+        "name": "datatable:row_edit_saved",
+        "payload": "{ id?: string; key: string; index: number; values: unknown }"
+      },
+      {
+        "name": "datatable:row_edit_cancelled",
+        "payload": "{ id?: string; key: string; index: number }"
       },
       {
         "name": "log:cleared",
@@ -767,6 +861,11 @@
         "method": "aiBus.showToast(message, type?, priority?)",
         "emits": "toast:shown",
         "returns": "string (toast id)"
+      },
+      {
+        "method": "aiBus.showToastPromise(promise, messages)",
+        "emits": "toast:shown",
+        "returns": "the same promise, for awaiting"
       }
     ]
   },
@@ -816,6 +915,49 @@
       "description": "Data-driven collapsible panel group with animations"
     },
     {
+      "name": "Alert",
+      "import": "import { Alert } from '#toolcrib'",
+      "slots": [
+        "Title",
+        "Description"
+      ],
+      "props": {
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Status color. Falls back to the nearest `<StyleDomainProvider>`'s, then `'info'`. Wins over `variant`."
+        },
+        "variant": {
+          "type": "'primary' | 'secondary'",
+          "description": "Identity color (`primary`/`secondary`) for a branded, non-status callout. Ignored if a subtheme resolves."
+        },
+        "appearance": {
+          "type": "'soft' | 'solid' | 'outline'",
+          "default": "'soft'",
+          "description": "Visual treatment for the resolved color."
+        },
+        "icon": {
+          "type": "ReactNode | false",
+          "description": "Replaces the status icon. `false` hides it. A default icon matches the subtheme (info, success, warning, error); a branded `variant` callout gets the info icon."
+        },
+        "role": {
+          "type": "'alert' | 'status' | 'none'",
+          "description": "Live-region role. `'alert'` (assertive) for error/warning, `'status'`\n(polite) otherwise, by default -- screen readers announce the content\nwhen it appears. `'none'` for a static callout that shouldn't be\nannounced at all."
+        },
+        "action": {
+          "type": "ReactNode",
+          "description": "An action rendered after the text, e.g. a `<Button size=\"sm\">`."
+        },
+        "onDismiss": {
+          "type": "() => void",
+          "description": "Renders a close button; called when it's pressed. The Alert doesn't hide itself -- remove it from the tree in this callback. Emits `alert:dismissed`."
+        }
+      },
+      "category": "Containers",
+      "antiPatternAvoid": "Open an `<AlertDialog>`/`<Modal>` for a non-blocking message, or hand-roll a tinted `<div>` with an emoji and no `role`",
+      "antiPatternInstead": "Use `<Alert>` for a message that belongs next to its content (role `alert`/`status` announces it); `<AlertDialog>` only when the user must decide before continuing",
+      "description": "Inline callout (status icon, title, description, optional action and dismiss) with live-region semantics — in the page flow, never blocking"
+    },
+    {
       "name": "AlertDialog",
       "import": "import { AlertDialog } from '#toolcrib'",
       "slots": [
@@ -826,6 +968,13 @@
         "Cancel",
         "Action"
       ],
+      "slotProps": {
+        "Action": {
+          "onClick": {
+            "type": "() => void"
+          }
+        }
+      },
       "props": {
         "id": {
           "type": "string",
@@ -833,7 +982,7 @@
         },
         "trigger": {
           "type": "ReactElement",
-          "description": "Element that opens the dialog on click. Rendered inline; the dialog manages open/close state automatically."
+          "description": "Element that opens the dialog on click; the dialog manages open/close state automatically.\nIt becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, and focus returns to it on close, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role=\"button\"` and keyboard activation automatically."
         },
         "isOpen": {
           "type": "boolean",
@@ -853,10 +1002,10 @@
           "default": "Z_INDEX.MODAL (200)",
           "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An\nintentional escape hatch, not guarded against an arbitrary/conflicting\nvalue -- most consumers should never need it. See Modal's identical\nprop for the tie-breaking behavior when two instances share a default."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "default": "'Confirm Action'",
-          "description": "Accessible name announced by screen readers when the dialog opens.\nAlways visually hidden, matching `Modal`'s `ariaLabel` — set this\nexplicitly (typically matching your `AlertDialog.Header` text) for a\nmeaningful announcement."
+          "description": "Accessible name announced by screen readers when the dialog opens.\nAlways visually hidden, matching `Modal`'s `aria-label` — set this\nexplicitly (typically matching your `AlertDialog.Header` text) for a\nmeaningful announcement."
         },
         "overrides": {
           "type": "Partial<AlertDialogSliceState> & { subtheme?: SubthemeName }",
@@ -874,6 +1023,31 @@
         "Main",
         "Sidebar"
       ],
+      "slotProps": {
+        "Header": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Main": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Sidebar": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Header": "Renders as a `<header>` with themed padding, background, and a bottom border.",
+        "Main": "Renders as a `<main>` that fills remaining vertical space.",
+        "Sidebar": "Renders as an `<aside>` with a fixed themed width, only meaningful when the parent `<AppShell>`'s `layout` is `'sidebar-left'`/`'sidebar-right'`."
+      },
       "props": {
         "layout": {
           "type": "'default' | 'sidebar-left' | 'sidebar-right'",
@@ -928,7 +1102,7 @@
         },
         "fallbackDelayMs": {
           "type": "number",
-          "description": "Delay in milliseconds before the fallback renders while the image is\nstill loading, avoiding a flash of fallback content for a fast-loading\nimage. Omitted by default — Radix's own `AvatarPrimitive.Fallback`\nrenders immediately with no artificial delay unless `delayMs` is\nexplicitly passed (confirmed in `@radix-ui/react-avatar`'s source:\nits `canRender` state starts `true` only when `delayMs === undefined`),\nso defaulting this to a nonzero value here would force every avatar\nwith no `src` — the common initials-only case — to sit blank for that\nlong before showing its fallback, for no benefit."
+          "description": "Delay in milliseconds before the fallback renders while the image is\nstill loading, avoiding a flash of fallback content for a fast-loading\nimage. Omitted by default — the fallback renders immediately with no\nartificial delay unless one is passed, so defaulting this to a\nnonzero value here would force every avatar\nwith no `src` — the common initials-only case — to sit blank for that\nlong before showing its fallback, for no benefit."
         },
         "overrides": {
           "type": "Partial<AvatarSliceState>",
@@ -1051,9 +1225,9 @@
           "description": "Visual treatment for `subtheme`'s color. Ignored unless a subtheme resolves."
         }
       },
-      "constraints": "Its own background/padding/radius/border props stay theme-driven by default; style/className layer on top rather than replacing them",
+      "constraints": "Not a layout tool: use VStack/HStack/Grid for direction, alignment and gaps. Stay in theme first (props, overrides, StyleDomainProvider, theme-level changes); a raw styled div/span is the last resort, and its style still uses var(--ai-*) theme variables, never literal hex/px",
       "category": "Layout Primitives",
-      "description": "Themed, stylable container `<div>` with subtheme colouring — the one deliberate exception to \"no style/className on toolcrib components\", for ad-hoc layout needs nothing else covers"
+      "description": "Themed surface `<div>`: background, padding, radius, border and subtheme colouring, all from theme tokens — no style/className, like every toolcrib component"
     },
     {
       "name": "Breadcrumb",
@@ -1062,6 +1236,18 @@
         "Item",
         "Separator"
       ],
+      "slotProps": {
+        "Item": {
+          "href": {
+            "type": "string",
+            "description": "Href for this crumb's link. Omit for the current page (the last item is automatically non-interactive regardless), or for a grouping crumb with no page of its own: with neither href nor onClick, a middle crumb renders as plain text."
+          },
+          "onClick": {
+            "type": "() => void",
+            "description": "Click handler, for a JS-driven crumb instead of a real link."
+          }
+        }
+      },
       "props": {
         "separator": {
           "type": "ReactNode",
@@ -1173,6 +1359,14 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — maps onto the same scale as `overrides.cellSize` and scales the month heading's font size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the calendar grid. Required for a meaningful accessible name unless `aria-labelledby` is given instead — without either, React Aria's own `useCalendar` warns and the grid has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "category": "Form Controls",
@@ -1189,6 +1383,37 @@
         "Footer",
         "Actions"
       ],
+      "slotProps": {
+        "Header": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Content": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          },
+          "layout": {
+            "type": "'default' | 'auto'",
+            "default": "'default'",
+            "description": "`'auto'` enables flex column layout with overflow hidden and minHeight: 0,\nuseful for embedding scrollable or virtualized content."
+          }
+        },
+        "Footer": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Header": "Renders with bottom border, bold text.",
+        "Content": "Main body area of the card.",
+        "Footer": "Renders with top border and container background.",
+        "Actions": "Flex row aligned to the end, typically used inside Footer."
+      },
       "props": {
         "layout": {
           "type": "'default' | 'auto'",
@@ -1270,6 +1495,109 @@
       "description": "Swipeable slide carousel with drag/loop physics via embla-carousel-react, plus themed nav arrows and dot indicators"
     },
     {
+      "name": "Checkbox",
+      "import": "import { Checkbox } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label text rendered beside the checkbox."
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Controlled checked state."
+        },
+        "defaultChecked": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Initial checked state when neither `checked` nor a Form binding is present (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(checked: boolean) => void",
+          "description": "Change handler. Receives the new boolean value directly, like `<Switch>`'s."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance size override. Shared with `<Switch>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member.\nSee `<Button>`'s own identical prop for the general pattern."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Boolean checkbox bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable checkbox element"
+    },
+    {
+      "name": "CheckboxGroup",
+      "import": "import { CheckboxGroup } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is a `string[]`."
+        },
+        "options": {
+          "type": "CheckboxOption[]",
+          "required": true,
+          "description": "The checkboxes, in display order."
+        },
+        "value": {
+          "type": "string[]",
+          "description": "Controlled checked values."
+        },
+        "defaultValue": {
+          "type": "string[]",
+          "description": "Initial checked values (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: string[]) => void",
+          "description": "Change handler. Receives the checked values, in `options` order."
+        },
+        "maxSelected": {
+          "type": "number",
+          "description": "Most boxes that can be checked at once. When reached, the unchecked boxes disable until one is unchecked."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Visible group label. Inside a `<FormField label>` leave it off: the field's label names the group."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name when there is no visible label."
+        },
+        "direction": {
+          "type": "'horizontal' | 'vertical'",
+          "default": "'vertical'",
+          "description": "Layout direction."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "If true, every option is disabled."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control: the option label's font size."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance checkbox size override. Shared with `<Checkbox>`/`<Switch>`."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "N separate `<Checkbox>`es plus hand-written code to fold them into one array field",
+      "antiPatternInstead": "`<CheckboxGroup options={[...]} maxSelected={3} />` inside a `<FormField>`; the Form value is the array of checked values",
+      "description": "Group of checkboxes bound to one array-valued field (`string[]`), data-driven, with optional `maxSelected`"
+    },
+    {
       "name": "Collapsible",
       "import": "import { Collapsible } from '#toolcrib'",
       "props": {
@@ -1324,9 +1652,13 @@
           "default": "'Search...'",
           "description": "Placeholder text when empty."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "description": "Accessible name announced by screen readers. Only needed when this\n`Combobox` isn't inside a `<FormField label=\"...\">` -- the `<label\nhtmlFor>` that renders provides the accessible name already in that\ncase, the same way it does for `Input`/`Select`/`Slider`."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names this control. Used instead of the inherited `<FormField>` label when set."
         },
         "options": {
           "type": "ListboxOptionData[]",
@@ -1345,6 +1677,10 @@
           "type": "boolean",
           "default": "false",
           "description": "Allows selecting more than one option, rendered as removable chips.\nChanges the shape of `value`/`defaultValue`/`onChange` from `string` to\n`string[]`."
+        },
+        "chipColor": {
+          "type": "(value: string) => ComboboxChipColor | undefined",
+          "description": "Per-chip color when `multiple` is true — called with each selected\nvalue; return `undefined` for the default solid primary chip. A\nfunction of the value rather than a field on each option, so it also\ncovers `allowCustomValue` chips and controlled/async values that have\nno matching option object on hand (e.g. `v => v === 'urgent' ? { subtheme: 'error' } : undefined`)."
         },
         "value": {
           "type": "string | string[]",
@@ -1380,6 +1716,10 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
@@ -1396,7 +1736,11 @@
         "items": {
           "type": "CommandPaletteItemData[]",
           "required": true,
-          "description": "Array of items to render, fuzzy-filtered by `cmdk` as the user types."
+          "description": "Array of items to render, filtered as the user types (see `filter`)."
+        },
+        "filter": {
+          "type": "CommandPaletteFilter",
+          "description": "Custom matcher, e.g. a fuzzy scorer. The default is a case- and\naccent-insensitive substring match on the item's text and keywords,\nkeeping the list's own order."
         },
         "placeholder": {
           "type": "string",
@@ -1423,8 +1767,8 @@
       },
       "category": "Overlays",
       "antiPatternAvoid": "Hand-roll a fuzzy-searchable command launcher with a raw `<input>` and manual filtering, or wire your own global `Cmd/Ctrl+K` listener",
-      "antiPatternInstead": "Use `<CommandPalette items={...}>` — fuzzy filter, grouping, and the global shortcut are wired in automatically once mounted; triggerable from anywhere via `aiBus.openCommandPalette(id)`",
-      "description": "Fuzzy-searchable command launcher opened via Cmd/Ctrl+K, hosted in a top-anchored Modal (VS Code-style quick-switcher placement)"
+      "antiPatternInstead": "Use `<CommandPalette items={...}>` — filtering, grouping, and the global shortcut are wired in automatically once mounted; triggerable from anywhere via `aiBus.openCommandPalette(id)`",
+      "description": "Searchable command launcher opened via Cmd/Ctrl+K, hosted in a top-anchored Modal (VS Code-style quick-switcher placement); pluggable matcher for fuzzy search"
     },
     {
       "name": "Content",
@@ -1492,22 +1836,31 @@
         "pagination": {
           "type": "boolean",
           "default": "true",
-          "description": "Renders a page-at-a-time with Prev/Next controls when true (the\ndefault). Set to false to virtualize across the *entire* sorted\ndataset instead — no pagination footer, no page slicing — the\nbetter fit once a dataset is too large to page through usefully.\n`pageSize`/`pageSizeOptions` are ignored in this mode."
+          "description": "Renders a page-at-a-time with Prev/Next controls when true (the\ndefault). Set to false to virtualize across the *entire* sorted\ndataset instead — no pagination footer, no page slicing — the\nbetter fit once a dataset is too large to page through usefully.\n`defaultPageSize`/`pageSizeOptions` are ignored in this mode."
         },
-        "pageSize": {
+        "onEndReached": {
+          "type": "() => void",
+          "description": "Called once whenever the virtualization window's own trailing edge\ncomes within `endReachedThreshold` rows of the end of `data` -- the\nsignal a `pagination={false}` (continuous-scroll) consumer needs to\nlazy-load more rows from a server as the user scrolls near the end of\nwhat's currently loaded (issue #365). The actual continuous-scroll\nrendering/windowing needs no help from this -- `pagination={false}`\nalready virtualizes across the whole `data` array with no page\nboundaries; this is purely an early-warning callback layered on top.\n\nFires at most once per distinct `data.length` -- appending more rows\n(growing `data`) re-arms it for the next threshold crossing;\nscrolling back and forth within the same loaded set does not\nre-trigger it. Has no effect when `pagination` is true: a paginated\ntable already has a complete, known page of data and Prev/Next\nnavigation, so \"near the end of the current page\" isn't a signal to\nload more from a server the way it is in continuous-scroll mode.\nAlso mirrored on the event bus as `datatable:end_reached`."
+        },
+        "endReachedThreshold": {
           "type": "number",
           "default": "10",
-          "description": "Initial number of rows per page."
+          "description": "How many rows from the end of `data` the virtualization window's\ntrailing edge must come within before `onEndReached` fires. Only\nmeaningful alongside `onEndReached`."
+        },
+        "defaultPageSize": {
+          "type": "number | 'auto'",
+          "default": "'auto'",
+          "description": "Initial number of rows per page. Named `default*` (issue #391 --\nrenamed from the original `pageSize`) because that's exactly its\ncontract: it seeds this table's internal page-size state once, the\nsame uncontrolled-initial-value shape `defaultPage`/`defaultSortBy`/\n`defaultSelectedKeys`/`defaultQuickFilterValue`/`defaultColumnWidths`/\n`defaultDensity` all already use elsewhere in this component -- a\nlater change to this prop's own value does NOT propagate; there is no\nlive-syncing \"controlled\" counterpart for page size the way `page`\nitself has one. `'auto'` computes it live instead of using a fixed\nnumber -- `Math.floor(<measured body height> / itemHeight)` -- so a\npage always fills exactly the space it's given (no partial row cut\noff, no empty space at the bottom), recomputing whenever the container\nis resized or density changes `itemHeight`. Mirrors `containerHeight`'s\nown `'auto'` convention, and reuses the exact same live measurement\n(`useAdaptiveSize(bodyRef)`) that already drives it.\n\nAlso the default (issue #419) -- an AI (or a human) reaching for\n`<DataTable>` with no opinion at all about page size gets a page that\nalready fills its own container exactly, rather than an arbitrary\nfixed 10 that might leave half the available space empty or cut a row\noff. `'Auto'` is also always present as a real option in the\npage-size dropdown (alongside `pageSizeOptions`, not instead of it) --\nan end user can switch the table into or out of auto-sizing\ninteractively; this prop only controls which one is selected first."
         },
         "pageSizeOptions": {
           "type": "number[]",
           "default": "[5, 10, 25, 50, 100]",
-          "description": "Options shown in the page-size dropdown."
+          "description": "Options shown in the page-size dropdown, alongside the always-present\n\"Auto\" choice."
         },
         "itemHeight": {
           "type": "number",
           "default": "44",
-          "description": "Height of each row in pixels (used for virtualization calculations)."
+          "description": "Height of each row in pixels (used for virtualization calculations).\nLeft unset, this is derived from the active density instead of a fixed\nnumber -- `36`/`44`/`56` for compact/normal/spacious respectively\n(`DataTableSlice.ts`'s own `DENSITY_ROW_HEIGHT_PX`, the same values its\n`--ai-table-row-height` CSS variable is computed from) -- so switching\ndensity doesn't leave the real virtualization window measuring against\nstale numbers (issue #339). An explicit value here always wins over\nthat derivation."
         },
         "containerHeight": {
           "type": "number | 'auto'",
@@ -1526,27 +1879,38 @@
           "type": "(record: T, index: number) => void",
           "description": "Called when a row is clicked. Every row click also emits\n`datatable:row_clicked` on the event bus regardless of whether this is\ngiven, so an AI agent observing the bus can see row interactions even\nin apps that don't wire up their own handler — this prop is for the\napp's own reaction (open a detail view, select the row, etc.). Rows\nonly show a pointer cursor when this is provided, so the visual\naffordance matches what's actually clickable."
         },
-        "sortKey": {
-          "type": "string | null",
-          "description": "Controlled sort key. Pass a value (a column's `key`, or `null` for\nunsorted) to drive sorting from parent state — e.g. to persist it in\na URL — instead of letting `<DataTable>` manage it internally. Omit\nentirely for the common uncontrolled case; `defaultSortKey` seeds\nthat internal state instead."
+        "quickFilter": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Renders a global/quick-filter search box above the table -- a simple\ncase-insensitive substring match against every column's *resolved*\nvalue (`Column.accessorFn(record)` if given, else\n`record[Column.key]`; see `quickFilterValue`'s own doc for why this\nis the resolved value rather than a `Column.render`'s rendered\noutput). Filtering happens before sorting/pagination/virtualization,\nso `aria-rowcount`, the \"Showing X to Y of Z\" footer, and the\nwindowing math all already reflect the filtered count -- nothing\nelse needs to know filtering happened at all."
         },
-        "defaultSortKey": {
-          "type": "string | null",
-          "description": "Initial sort key when uncontrolled (`sortKey` omitted)."
+        "quickFilterFields": {
+          "type": "((keyof T & string) | (string & {}))[]",
+          "description": "Restricts which columns `quickFilter` searches against, by `Column.key`\n-- omit to search every column (the previous, only behavior). Doesn't\nchange where the search input itself is rendered (the built-in\n`quickFilter` UI, or a consumer's own controlled `quickFilterValue`/\n`onQuickFilterChange` input) -- only which columns get matched."
         },
-        "sortDirection": {
-          "type": "'asc' | 'desc'",
-          "default": "'asc'",
-          "description": "Controlled sort direction. Only meaningful alongside `sortKey`."
+        "quickFilterValue": {
+          "type": "string",
+          "description": "Controlled quick-filter value. Pass a value to drive it from parent\nstate (e.g. to persist it in a URL) instead of letting `<DataTable>`\nmanage it internally -- the same controlled/uncontrolled shape\n`sortBy`/`page`/`selectedKeys` already use. Omit for the common\nuncontrolled case; `defaultQuickFilterValue` seeds that internal\nstate instead. Has no effect when `quickFilter` is false."
         },
-        "defaultSortDirection": {
-          "type": "'asc' | 'desc'",
-          "default": "'asc'",
-          "description": "Initial sort direction when uncontrolled."
+        "defaultQuickFilterValue": {
+          "type": "string",
+          "description": "Initial quick-filter value when uncontrolled (`quickFilterValue` omitted)."
+        },
+        "onQuickFilterChange": {
+          "type": "(value: string) => void",
+          "description": "Called whenever the quick-filter value changes, whether controlled or\nuncontrolled -- mirrors `datatable:filtered`'s payload shape as a\ndirect prop instead of a bus subscription, the same relationship\n`onSortChange` has to `datatable:sorted`. Changing the filter always\nresets the current page back to 1 (matching the page-size dropdown's\nown existing behavior) -- a page number valid for the old, larger\nresult set can easily be past the end of a smaller filtered one."
+        },
+        "sortBy": {
+          "type": "SortDescriptor[]",
+          "description": "Controlled multi-column sort, in priority order (index 0 = primary\nsort key). Pass an array to drive sorting from parent state — e.g. to\npersist it in a URL — instead of letting `<DataTable>` manage it\ninternally. Omit entirely for the common uncontrolled case;\n`defaultSortBy` seeds that internal state instead.\n\nA plain click on a sortable header replaces the WHOLE array with just\nthat one column -- the same asc -> desc -> unsorted cycle a\nsingle-sort table always had, still true for the common case where\nthis never grows past one entry. Shift+click instead adds/cycles/\nremoves that column as the next sort PRIORITY without disturbing the\nothers, matching the Shift+click convention TanStack Table and AG\nGrid both already use for their own free multi-sort."
+        },
+        "defaultSortBy": {
+          "type": "SortDescriptor[]",
+          "description": "Initial multi-column sort when uncontrolled (`sortBy` omitted)."
         },
         "onSortChange": {
-          "type": "(key: string | null, direction: 'asc' | 'desc') => void",
-          "description": "Called whenever sort changes, whether controlled or uncontrolled —\nmirrors `datatable:sorted`'s payload shape as direct props instead\nof a bus subscription. `key` is `null` when the cycle lands back on\nunsorted."
+          "type": "(sortBy: SortDescriptor[]) => void",
+          "description": "Called whenever the sort changes, whether controlled or uncontrolled —\nmirrors `datatable:sorted`'s payload shape as a direct prop instead of\na bus subscription."
         },
         "page": {
           "type": "number",
@@ -1564,7 +1928,12 @@
         "selectable": {
           "type": "boolean",
           "default": "false",
-          "description": "Adds a checkbox selection column and a bulk-action bar. Greenfield —\nthere is no selection model on `<DataTable>` without this."
+          "description": "Adds a selection column and a bulk-action bar. Greenfield — there is\nno selection model on `<DataTable>` without this. A row is also\nselectable by clicking anywhere on it (see `disableRowClickSelection`)\n— the checkbox/radio column is a redundant, always-available second\naffordance for the exact same action, not the only way to select."
+        },
+        "selectionMode": {
+          "type": "'single' | 'multiple'",
+          "default": "'multiple'",
+          "description": "`'multiple'` (the default) renders checkboxes, a 3-state \"select all\"\nheader control, and lets a row click/Ctrl-click/Shift-click add to,\ntoggle, or range-select the current selection. `'single'` renders a\nradio-style indicator instead, hides the \"select all\" control\n(meaningless for one choice), and makes every selection action —\nclick, checkbox/radio, keyboard Space — simply replace the whole\nselection with just that one row, matching real `<input\ntype=\"radio\">` semantics (no modifier keys, no un-selecting by\nre-clicking the current choice). `selectedKeys`/`onSelectionChange`\nkeep the same `string[]` shape either way, just constrained to 0 or 1\nentries in `'single'` mode."
         },
         "selectedKeys": {
           "type": "string[]",
@@ -1578,19 +1947,131 @@
           "type": "(selectedKeys: string[]) => void",
           "description": "Called whenever selection changes, whether controlled or uncontrolled."
         },
+        "disableRowClickSelection": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Set to disable click-to-select entirely, falling back to the\ncheckbox/radio column as the only way to change selection — for a\nconsumer whose `onRowClick` already does something unrelated to\nselection (open a detail panel, navigate) and doesn't want a click\nthere to also select the row. Has no effect when `selectable` is\nfalse. `onRowClick` itself always keeps firing on every row click\neither way, per its own existing contract."
+        },
+        "hideSelectionColumn": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Hides the checkbox/radio column entirely while `selectable` stays in\neffect — selection still works via row click (unless\n`disableRowClickSelection`) and keyboard Space, this just removes the\nvisible per-row widget and the \"select all\" header control, for a\ntable that wants row-highlight-only selection with no dedicated\ncolumn taking up space. Every selected `<tr>` still carries\n`aria-selected=\"true\"` regardless of this flag, so the selection\nstate stays screen-reader-visible either way."
+        },
         "renderBulkActions": {
-          "type": "(selectedKeys: string[]) => ReactNode",
-          "description": "Renders the action buttons in the bulk-action `<Toolbar>` that appears\nonce at least one row is selected — the selection-count label is\nalready provided; this renders only the actions themselves (e.g.\n\"Delete\", \"Export\"), receiving the current selection to act on."
+          "type": "(selectedKeys: string[], actions: { startEditingRows: (keys: string[]) => void }) => ReactNode",
+          "description": "Renders the action buttons for the current selection, shown centered\nin the same top toolbar row `quickFilter`/`densitySelector` share\n(alongside the \"N selected\" count, already provided) once at least\none row is selected -- this renders only the actions themselves (e.g.\n\"Delete\", \"Export\"), receiving the current selection to act on.\n\nThe second argument is only ever useful when `editable` is also true --\n`actions.startEditingRows` is the same batch-add this table's own\nediting key-set already exposes, letting a bulk \"Edit selected\" button\nfall out of composing the two already-independent selection/editing\nkey-sets (issue #545) rather than needing its own dedicated prop.\nIgnore it for any other bulk action."
+        },
+        "rowCommands": {
+          "type": "RowCommand<T>[]",
+          "description": "Per-row action buttons rendered in a dedicated trailing column. Each\nclick emits `datatable:row_command` on `aiBus` (`{ id: <table id>,\ncommand: <this RowCommand's own id>, key: <this row's resolved\nselection/row key>, index }`) instead of requiring a bespoke callback\nprop per action — an aiBus listener (an AI agent, an analytics\nsubscriber, anything else) reacts to \"the user clicked Edit/Delete/\nwhatever on row N\" the same generic way it already observes\n`datatable:row_clicked`/`datatable:selection_changed`. Omit for no\nactions column at all."
+        },
+        "columnWidths": {
+          "type": "Record<string, number>",
+          "description": "Controlled map of resized column widths (px), keyed by `Column.key`.\nOnly columns the user has actually resized need appear -- a column\nabsent from this map keeps rendering its own configured `width`. Pass\nto drive resized widths from parent state (e.g. to persist them to\n`localStorage`) instead of letting `<DataTable>` manage them\ninternally. Omit for the common uncontrolled case; `defaultColumnWidths`\nseeds that internal state instead. Only meaningful for columns marked\n`resizable`."
+        },
+        "defaultColumnWidths": {
+          "type": "Record<string, number>",
+          "description": "Initial resized widths when uncontrolled (`columnWidths` omitted)."
+        },
+        "onColumnWidthsChange": {
+          "type": "(widths: Record<string, number>) => void",
+          "description": "Called once a resize completes (mouse/touch release, or an\narrow-key/Home/End press), whether controlled or uncontrolled -- never\non every intermediate drag tick, so this is safe to wire straight to a\n`localStorage` write without flooding it mid-drag."
         },
         "overrides": {
           "type": "Partial<TableSliceState>",
           "description": "Per-instance overrides for density, border style, and striping."
+        },
+        "densitySelector": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Renders a built-in compact/normal/spacious toggle-button-group above\nthe table (in the same bar `quickFilter`'s search box occupies) that\ndrives density live -- both the CSS variables (padding/row height) and\nthe real row height virtualization measures against, together (issue\n#339). Uses the `density`/`defaultDensity`/`onDensityChange` trio below\nfor its state, the same controlled/uncontrolled shape every other\n`<DataTable>` feature already uses; enabling this without also passing\n`density`/`defaultDensity` starts from `overrides.density` (if given)\nor `'normal'`."
+        },
+        "density": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Controlled live density -- drives the actual applied density (both the\nCSS variables and the real row height virtualization measures against)\nfrom parent state, taking precedence over `overrides.density` when both\nare given, since this represents an end user's own runtime choice\nrather than a developer-set default. Pairs naturally with your own\nexternal density UI when `densitySelector`'s built-in toggle group\nisn't the right fit. Omit for the common uncontrolled case;\n`defaultDensity` seeds that internal state instead. Passing neither\nthis, `defaultDensity`, nor `densitySelector` leaves density governed\nentirely by `overrides.density` (or the theme's own default), exactly\nas before this feature existed."
+        },
+        "defaultDensity": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Initial live density when uncontrolled (`density` omitted). Falls back to `overrides.density`, then `'normal'`."
+        },
+        "onDensityChange": {
+          "type": "(density: TableDensity) => void",
+          "description": "Called whenever the live density changes, whether controlled or uncontrolled."
+        },
+        "csvExport": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Renders a built-in \"Export CSV\" button (in the same top toolbar row\n`quickFilter`/`densitySelector` share) that downloads the *entire*\ncurrently filtered + sorted dataset -- every matching row across every\npage, not just the current page -- as a CSV file, using each column's\n`title` as its header and the same resolved cell value\n(`accessorFn(record)` if given, else `record[key]`) sorting already\nuses. A column's custom `render` output is never used for the CSV,\nsince it can return arbitrary JSX with no meaningful plain-text form to\nfall back on. Also emits `datatable:exported` on the event bus."
+        },
+        "csvExportFileName": {
+          "type": "string",
+          "default": "'export.csv'",
+          "description": "File name for the CSV download triggered by `csvExport`."
+        },
+        "columnVisibility": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Renders a built-in \"Columns\" button (same top toolbar row) that opens a\nchecklist menu letting an end user show/hide any column live -- every\ncolumn from `columns` is listed, regardless of its current visibility,\nso a hidden column can always be re-shown from the same menu. A hidden\ncolumn occupies no grid position at all (not just a visually-hidden\none) -- it's skipped in the header, every body row, and CSV export\n(`csvExport` above) alike, and keyboard-nav column coordinates stay\ncontiguous with no gap left behind. Uses the\n`hiddenColumns`/`defaultHiddenColumns`/`onHiddenColumnsChange` trio\nbelow for its state, the same controlled/uncontrolled shape every other\nbuilt-in `<DataTable>` feature already uses."
+        },
+        "hiddenColumns": {
+          "type": "string[]",
+          "description": "Controlled set of hidden column keys (`Column.key`). Pass to drive\ncolumn visibility from parent state (e.g. to persist it to\n`localStorage`) instead of letting `<DataTable>` manage it internally.\nOmit for the common uncontrolled case; `defaultHiddenColumns` seeds\nthat internal state instead. Has an effect regardless of whether\n`columnVisibility`'s own built-in menu is rendered -- a consumer can\ndrive column visibility entirely from their own external UI."
+        },
+        "defaultHiddenColumns": {
+          "type": "string[]",
+          "description": "Initial hidden columns when uncontrolled (`hiddenColumns` omitted)."
+        },
+        "onHiddenColumnsChange": {
+          "type": "(hiddenColumns: string[]) => void",
+          "description": "Called whenever the hidden-column set changes, whether controlled or uncontrolled -- always the FULL current set, not just the one column that changed."
+        },
+        "renderToolbarExtra": {
+          "type": "() => ReactNode",
+          "description": "Renders arbitrary caller content into the same top toolbar row\n`quickFilter`'s search box and `densitySelector`'s toggle group share\n-- alongside density, on the right, since that's the one slot never\nclaimed by a built-in feature. For a consumer who wants their own\nactions (a refresh button, an export button) living in that same bar\ninstead of a separate one above/below the table. Mounts the bar even\nif `quickFilter`/`densitySelector`/`selectable` are all false, so this\nalone is enough to get the row at all."
+        },
+        "emptyState": {
+          "type": "ReactNode",
+          "description": "Rendered in place of the row set when there's nothing to show (the\nsorted dataset is empty) — the header and, if `pagination` is true,\nthe pagination footer (correctly showing \"0 of 0\") still render\nnormally around it. Omit for the previous default: an empty `<tbody>`\nwith no message at all."
+        },
+        "editable": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Adds row-level inline editing (issue #545) via a separate \"edit\nco-grid\" -- a second, small grid sharing this table's own column\norder/widths, consolidating every row currently being edited (from\nANY page/sort/filter) into one place. Greenfield, mirrors\n`selectable`'s own gate. Requires BOTH `rowKey` (a real one — see its\nown doc for why the index-based fallback can't be used here) and\n`editSchema` whenever true; omitting either throws immediately rather\nthan silently degrading, since the co-grid cannot resolve records\ncorrectly without them.\n\n(Not currently enforced as a TypeScript-level requirement via a\ndiscriminated prop type — the runtime throw is the real, load-bearing\ncheck here. A discriminated `editable: true` overload was considered\nbut deferred: its interaction with the manifest/docs generator's own\nprops extraction hasn't been verified, and getting that wrong would\nsilently break a required CI check. Worth revisiting as a follow-up\nonce that's confirmed safe.)"
+        },
+        "editSchema": {
+          "type": "ZodType<T>",
+          "description": "The edit co-grid's validation schema — required whenever `editable`\nis true. For a consumer who genuinely doesn't care about validation,\n`createPermissiveTableSchema(data[0])` builds a schema that renders\nevery editable column as a plain text box with no real validation,\nrather than requiring one to be hand-written for the trivial case."
+        },
+        "editingKeys": {
+          "type": "string[]",
+          "description": "Controlled set of keys currently being edited. Omit for the common uncontrolled case; `defaultEditingKeys` seeds that internal state instead."
+        },
+        "defaultEditingKeys": {
+          "type": "string[]",
+          "description": "Initial editing keys when uncontrolled (`editingKeys` omitted)."
+        },
+        "onEditingKeysChange": {
+          "type": "(editingKeys: string[]) => void",
+          "description": "Called whenever the editing key-set changes, whether controlled or uncontrolled — always the FULL current set."
+        },
+        "onRowEditSave": {
+          "type": "(record: T, index: number, nextValues: T) => void",
+          "description": "Called when a co-grid row's Save commits, with the edit schema's own parsed output (never raw field strings — matches `<Form>`'s own `onSubmit` contract)."
+        },
+        "onRowEditCancel": {
+          "type": "(record: T, index: number) => void",
+          "description": "Called when a co-grid row's Cancel discards its draft."
+        },
+        "maxEditingRows": {
+          "type": "number",
+          "default": "50",
+          "description": "Hard ceiling on how many rows the edit co-grid will ever render at\nonce. The co-grid is deliberately unvirtualized (issue #545) so it can\ngrow taller than a fixed row height and stay decoupled from the main\ngrid's own windowing -- nothing else bounds it, so without this, a\nbulk \"edit all\" on a large table (or a controlled `editingKeys` prop\nset carelessly) would render one full `<Form>` per row with no limit.\nEnforced regardless of how the editing set grew, including a\ncontrolled `editingKeys` prop set larger than this directly -- only\nthe first `maxEditingRows` keys (by insertion order) actually render;\nthe rest are silently excluded from the co-grid (with a dev-mode\nconsole warning) but still genuinely present in `editingKeys` itself."
         }
       },
       "category": "Data Display",
       "antiPatternAvoid": "Fake per-row emphasis via `column.render` (styling each cell individually to approximate a highlighted row), or hand-roll row selection (a `Set` of ids in parent state, a checkbox column, header indeterminate logic)",
       "antiPatternInstead": "Use `<DataTable rowSubtheme={(record) => ...}>` for row emphasis — classifies a row into `'error'`/`'success'`/`'warning'`/`'info'` and tints the actual row background/border, not a per-cell approximation — and `<DataTable selectable selectedKeys={...} onSelectionChange={...}>` for selection, where the checkbox column, 3-state header checkbox, and cross-page persistence all come built in",
-      "description": "Virtualized, sortable, paginated data table with sticky headers"
+      "description": "Virtualized, sortable, paginated data table with sticky headers and real WAI-ARIA grid keyboard navigation"
     },
     {
       "name": "DatePicker",
@@ -1641,12 +2122,92 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way (e.g. `<FormField label=\"...\">`'s own\nrendered label, which the field's composite date-segment structure\ncan't associate via a plain `htmlFor` the way a single `<input id>`\ncan) and doesn't want `label` above rendering a second, visually\nduplicate one. Ignored if `label` is set — that already supplies an\naccessible name via React Aria's own `<Label>`. Required for a\nmeaningful accessible name unless `aria-labelledby` or `label` is\ngiven instead — without any of the three, React Aria's own\n`useDatePicker` warns and the field has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
       "antiPatternAvoid": "Hand-roll a date-field + calendar popover, or pass a raw JS `Date` into a custom date input",
       "antiPatternInstead": "Use `<DatePicker>` with an `@internationalized/date` `CalendarDate` value — timezone/DST/locale correctness is exactly what that dependency exists to guarantee",
       "description": "Date field + calendar popover, hosted in `<Popup>` (not React Aria's own popover), built on React Aria Components"
+    },
+    {
+      "name": "DateRangePicker",
+      "import": "import { DateRangePicker } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. The Form value is a `{ start, end }` `CalendarDateRange`, or `null`."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the field."
+        },
+        "value": {
+          "type": "CalendarDateRange | null",
+          "description": "Controlled value, as `@internationalized/date` `CalendarDate`s -- never\nraw JS `Date`s at this boundary."
+        },
+        "defaultValue": {
+          "type": "CalendarDateRange | null",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: CalendarDateRange | null) => void",
+          "description": "Change handler. Receives the new range, or `null` if cleared."
+        },
+        "minValue": {
+          "type": "CalendarDate",
+          "description": "Earliest selectable date, inclusive."
+        },
+        "maxValue": {
+          "type": "CalendarDate",
+          "description": "Latest selectable date, inclusive."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag. Fixed, not browser-auto-detected -- see\n`<TimeField>`'s own doc for why an explicit default prevents an SSR\nhydration mismatch."
+        },
+        "overrides": {
+          "type": "Partial<DatePickerSliceState>",
+          "description": "Per-instance override for the calendar popover's grid cell size."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way (e.g. `<FormField label=\"...\">`). Ignored\nif `label` is set. Required for a meaningful accessible name unless\n`aria-labelledby` or `label` is given instead."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "Pair two `<DatePicker>`s for a date range and hand-validate that the end isn't before the start",
+      "antiPatternInstead": "Use `<DateRangePicker>` — one Form-bound `{ start, end }` value, with the calendar enforcing start/end ordering as you pick",
+      "description": "Start/end date fields + a range calendar popover, hosted in `<Popup>`, built on React Aria Components"
     },
     {
       "name": "DeferredContent",
@@ -1659,7 +2220,7 @@
         },
         "onVisibilityChange": {
           "type": "(state: ContentVisibilityState) => void",
-          "description": "Called when this content's rendering is skipped or resumed by the\nbrowser — e.g. to pause/resume an expensive child (a video, a live\nchart, a canvas animation) while it's off-screen. Optional: most\nchildren don't do continuous work and don't need this."
+          "description": "Called when this content's rendering is skipped or resumed by the\nbrowser — e.g. to pause/resume an expensive child (a video, a live\nchart, a canvas animation) while it's off-screen. The initial state is\nreported too, so content that starts on screen still gets a\n`{ skipped: false }` call, and work can be gated on it. Optional: most\nchildren don't do continuous work and don't need this."
         }
       },
       "category": "Containers",
@@ -1675,7 +2236,7 @@
         },
         "trigger": {
           "type": "ReactElement",
-          "description": "Element that toggles the drawer on click. Rendered inline."
+          "description": "Element that toggles the drawer on click.\nIt becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, and focus returns to it on close, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role=\"button\"` and keyboard activation automatically."
         },
         "position": {
           "type": "'top' | 'right' | 'bottom' | 'left'",
@@ -1720,7 +2281,7 @@
         "trigger": {
           "type": "ReactElement",
           "required": true,
-          "description": "Trigger element that opens the menu on click."
+          "description": "Trigger element that opens the menu on click.\nIt becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role=\"button\"` and keyboard activation automatically."
         },
         "items": {
           "type": "MenuItemData[]",
@@ -1758,6 +2319,40 @@
       "constraints": "Only `<EmptyState.Title>` is expected — Icon/Description/Action are all optional",
       "category": "Data Display",
       "description": "Slot-based placeholder for an empty list/search/error state — same compositional pattern as `<Card>`"
+    },
+    {
+      "name": "Fieldset",
+      "import": "import { Fieldset } from '#toolcrib'",
+      "props": {
+        "legend": {
+          "type": "ReactNode",
+          "required": true,
+          "description": "The group's visible label, e.g. \"Shipping address\". Required, not\noptional: a fieldset without a legend is a group nothing announces, which\nis the problem this component exists to fix."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Disable every field inside. Native inputs and buttons are disabled by the\nunderlying `<fieldset>`; every other toolcrib control reads it too.\nNested fieldsets inherit it."
+        },
+        "gap": {
+          "type": "'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'gap'",
+          "default": "'md'",
+          "description": "Gap between the fields."
+        },
+        "marginMode": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Override the gap using the theme margin token scale."
+        }
+      },
+      "childComponents": [
+        "FormField",
+        "Input",
+        "Select",
+        "Checkbox",
+        "RadioGroup"
+      ],
+      "category": "Form Controls",
+      "description": "Labelled group of form fields (a real fieldset and legend); a disabled Fieldset disables every field inside it"
     },
     {
       "name": "FileUpload",
@@ -1804,6 +2399,18 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — maps onto the same `density` scale as `overrides.density` (`sm`→`'compact'`, `md`→`'normal'`, `lg`→`'spacious'`) and scales the dropzone's own label text."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the dropzone. Only needed outside a `<FormField label>`, whose label names it already."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names the dropzone. Used instead of the inherited `<FormField>` label when set."
         }
       },
       "category": "Form Controls",
@@ -1877,8 +2484,11 @@
         "Button",
         "SubmitButton",
         "Input",
+        "NumberField",
+        "OTPField",
         "Select",
         "Checkbox",
+        "CheckboxGroup",
         "Switch",
         "Textarea",
         "RadioGroup",
@@ -1888,6 +2498,39 @@
       "antiPatternAvoid": "Write `register()` or `onChange` boilerplate for form fields",
       "antiPatternInstead": "Nest `<Input>`, `<Select>`, etc. inside `<FormField name=\"...\">` — binding is automatic",
       "description": "Zod 4 schema-driven form. Controls bind via context — no register() or onChange boilerplate"
+    },
+    {
+      "name": "FormError",
+      "import": "import { FormError } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name to show the error for. Omit for a summary error banner."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Validation error display: one field's error (after it is touched) with `name`, or a summary banner of all errors without it"
+    },
+    {
+      "name": "FormField",
+      "import": "import { FormField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Field name that binds to the form schema and context."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the control."
+        },
+        "helperText": {
+          "type": "ReactNode",
+          "description": "Help text shown below the control (hidden when there's a validation error)."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Wraps one form control with its label, helper text and validation error, and binds the control to the Form field `name` via context"
     },
     {
       "name": "Gallery",
@@ -2077,6 +2720,86 @@
       "description": "Horizontal flex row layout primitive"
     },
     {
+      "name": "Input",
+      "import": "import { Input } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "overrides": {
+          "type": "Partial<InputSliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for padding and border width. Shared with `<Textarea>`. Only applies at the default `size=\"md\"` — `sm`/`lg` resolve through the shared control padding scale instead, so they line up with a `sm`/`lg` `<Button>` in the same `<UIGroup>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "default": "'none'",
+          "description": "Which corners to square off — e.g. inside a `<UIGroup>`."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "clearable": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Shows a small \"✕\" clear button at the trailing edge once the input has\na non-empty value — clicking it resets the value through the same\nonChange/Form-context path a real clear keystroke would take, then\nreturns focus to the input. Mirrors `<Combobox>`'s own established\nsingle-select clear button (`strings.clearSelection`) — same\n`tabIndex={-1}` (mouse-only; Backspace/select-all already provide a\nkeyboard path, so this doesn't add an extra required Tab stop for\nsomething with an easy keyboard alternative)."
+        },
+        "onClear": {
+          "type": "() => void",
+          "description": "Extra side effect to run when the clear button is clicked — e.g. also resetting a related piece of state (an active-descendant index, a filter). Runs after the value itself is cleared. Only meaningful alongside `clearable`."
+        },
+        "leadingSection": {
+          "type": "ReactNode",
+          "description": "Content inside the field's border, before the text: an icon (`<Search />`),\nor short affix text (`'$'`, `'https://'`) — a plain string/number renders\nas muted affix text. May also be a small interactive control (e.g. a\ncompact `<Select>` or `<Button>`); clicking any non-interactive part of a\nsection focuses the input."
+        },
+        "trailingSection": {
+          "type": "ReactNode",
+          "description": "Same as `leadingSection`, after the text (`'.com'`, `'kg'`, an icon). Renders before the `clearable` button and the password reveal toggle when those are present."
+        },
+        "revealable": {
+          "type": "boolean",
+          "default": "true",
+          "description": "For `type=\"password\"`: show an eye toggle that reveals the typed value.\nThe toggle keeps a fixed accessible name (locale `input.showPassword`)\nand reports its state via `aria-pressed`. Ignored for other types."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Text input bound to Form context, with optional leading/trailing sections (icon or affix text inside the border), a clear button, and a password reveal toggle"
+    },
+    {
+      "name": "Kbd",
+      "import": "import { Kbd } from '#toolcrib'",
+      "props": {
+        "keys": {
+          "type": "string[]",
+          "description": "A key combination, rendered as one key cap per entry joined by `+`\n(`['Ctrl', 'K']` -> Ctrl + K), using the HTML spec's nested-`<kbd>`\nform for a combination."
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "default": "'md'"
+        },
+        "overrides": {
+          "type": "Partial<KbdSliceState>",
+          "description": "Per-instance override for the key-cap appearance (`raised`/`flat`)."
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "category": "Data Display",
+      "antiPatternAvoid": "A hand-styled `<kbd>` or `<span>` per call site for a shortcut hint",
+      "antiPatternInstead": "`<Kbd>Esc</Kbd>`, or `<Kbd keys={['Ctrl', 'K']} />` for a combination",
+      "description": "Keyboard key or shortcut hint (`Esc`, `Ctrl` + `K`) as a themed key cap on a semantic `<kbd>`"
+    },
+    {
       "name": "Label",
       "import": "import { Label } from '#toolcrib'",
       "props": {
@@ -2207,11 +2930,85 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control — drives the option row's font-size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the listbox. A listbox always needs one: a\ncontrolling field's `aria-controls` doesn't name it. When it's the popup\nof a field, give it the field's name (Combobox and Select pass their\n`aria-label`, or the FormField label via `aria-labelledby`). A\n`<div role=\"listbox\">` with neither this nor `aria-labelledby` has no\nname at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "constraints": "Purely presentational — owns no keyboard-navigation state; the caller drives `activeIndex` and reads back `${id}-option-${index}` for its own `aria-activedescendant`",
       "category": "Form Controls",
-      "description": "Keyboard-navigable, controlled option list with no matching Radix primitive to build on — extracted from Combobox's own hand-built listbox, now usable standalone"
+      "description": "Keyboard-navigable, controlled option list — extracted from Combobox's own hand-built listbox, now usable standalone"
+    },
+    {
+      "name": "Meter",
+      "import": "import { Meter } from '#toolcrib'",
+      "props": {
+        "aria-label": {
+          "type": "string",
+          "required": true,
+          "description": "Accessible name for the underlying `role=\"meter\"` element. Required, as\non `<Progress>`: a meter has no text content ARIA can derive a name from."
+        },
+        "value": {
+          "type": "number",
+          "required": true,
+          "description": "Current value, between `min` and `max`. Out-of-range values are clamped."
+        },
+        "min": {
+          "type": "number",
+          "default": "0",
+          "description": "Lowest value of the range."
+        },
+        "max": {
+          "type": "number",
+          "default": "100",
+          "description": "Highest value of the range."
+        },
+        "low": {
+          "type": "number",
+          "default": "min",
+          "description": "Upper edge of the \"low\" part of the range. With `high` and `optimum`,\nturns on band colouring."
+        },
+        "high": {
+          "type": "number",
+          "default": "max",
+          "description": "Lower edge of the \"high\" part of the range."
+        },
+        "optimum": {
+          "type": "number",
+          "default": "the middle of the range",
+          "description": "The ideal value, which says which end of the range is good. Put it in the\nlow part (disk usage) and a high reading shows the error colour; put it in the high\npart (battery, strength) and a low reading does. Band colouring is off\nuntil at least one of `low`, `high` or `optimum` is set."
+        },
+        "label": {
+          "type": "string",
+          "description": "Visible caption above the bar, also wired up as its label."
+        },
+        "showValue": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Show the formatted value beside the caption."
+        },
+        "format": {
+          "type": "Intl.NumberFormatOptions",
+          "default": "percent of the range",
+          "description": "Options for formatting the value, e.g. `{ style: 'percent' }`."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Bar thickness."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour to the whole bar, which wins over band colouring.\nFalls back to the nearest `<StyleDomainProvider>`'s if omitted."
+        }
+      },
+      "category": "Data Display",
+      "description": "Gauge for a value within a known range (role=\"meter\"), with optional low/high/optimum colour bands"
     },
     {
       "name": "Modal",
@@ -2230,7 +3027,7 @@
         },
         "trigger": {
           "type": "ReactElement",
-          "description": "Element that opens the modal on click. Rendered inline; the modal manages open/close state automatically."
+          "description": "Element that opens the modal on click; the modal manages open/close state automatically.\nIt becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, and focus returns to it on close, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role=\"button\"` and keyboard activation automatically."
         },
         "isOpen": {
           "type": "boolean",
@@ -2254,7 +3051,7 @@
           "default": "Z_INDEX.MODAL (200)",
           "description": "Z-index layer. Uses the toolkit's Z_INDEX.MODAL tier by default. An\nintentional escape hatch, not guarded against an arbitrary/conflicting\nvalue -- most consumers should never need it. Two Modal instances left\nat their shared default (nested, or simply both open) get the\nidentical numeric z-index; real stacking between them then falls back\nto portal/DOM append order, which is what actually keeps a later-\nopened instance on top today (verified live, see\ne2e/zindex-stress.spec.ts) -- not a second, independent guarantee."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "default": "'Dialog'",
           "description": "Accessible name announced by screen readers when the dialog opens.\nAlways visually hidden — unlike `<Drawer title>`, which is a visible\n`ReactNode` header, this is a screen-reader-only string. `Modal.Header`'s\nvisible text is decorative only and is not otherwise wired to the\ndialog's accessible name, so set this explicitly (typically matching\nyour `Modal.Header` text) for a meaningful announcement."
@@ -2271,6 +3068,143 @@
       },
       "category": "Overlays",
       "description": "Dialog overlay with focus trap, backdrop, and slot composition"
+    },
+    {
+      "name": "NumberField",
+      "import": "import { NumberField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is a real `number` (or `null` when empty)."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label rendered above the input."
+        },
+        "value": {
+          "type": "number | null",
+          "description": "Controlled value. `null` is an empty field."
+        },
+        "defaultValue": {
+          "type": "number | null",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: number | null) => void",
+          "description": "Change handler, called when the value commits (blur, Enter, a stepper, arrow keys). Receives `null` when the field is cleared."
+        },
+        "min": {
+          "type": "number",
+          "description": "Lowest allowed value; typed values clamp to it on commit."
+        },
+        "max": {
+          "type": "number",
+          "description": "Highest allowed value; typed values clamp to it on commit."
+        },
+        "step": {
+          "type": "number",
+          "description": "Increment for the steppers and arrow keys. When set, typed values also\nsnap to it (`step={0.25}` turns 1.1 into 1.0). Leave it unset for\nfree-form decimals like prices: the steppers still move by 1 and nothing\nis rounded."
+        },
+        "formatOptions": {
+          "type": "Intl.NumberFormatOptions",
+          "description": "Display format, as `Intl.NumberFormat` options: `{ style: 'currency', currency: 'USD' }`,\n`{ style: 'percent' }`, `{ style: 'unit', unit: 'kilogram' }`, `{ maximumFractionDigits: 2 }`.\nThe value itself stays a plain number (a percent of 25% is `0.25`)."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag for formatting and parsing (decimal and group\nseparators, currency placement). Fixed rather than browser-detected,\nso server and client render the same text (no hydration mismatch)."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Placeholder shown while the field is empty."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>`/`<Input>` so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name when no visible `label` is rendered. Ignored if `label` is set."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, referencing an existing visible label's id. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s identical prop."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "`<Input type=\"number\">` plus hand-rolled +/- buttons, clamping and `Intl.NumberFormat` display",
+      "antiPatternInstead": "`<NumberField min={0} max={99} formatOptions={{ style: 'currency', currency: 'USD' }} />` — inside a `<Form>` it stores a real `number`",
+      "description": "Numeric input with −/+ steppers, min/max clamping, step snapping, arrow/PageUp/PageDown keys and locale-aware currency/percent/unit formatting, built on React Aria Components"
+    },
+    {
+      "name": "OTPField",
+      "import": "import { OTPField } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Inside a `<Form>`, the stored value is one string."
+        },
+        "length": {
+          "type": "number",
+          "default": "6",
+          "description": "Number of cells."
+        },
+        "value": {
+          "type": "string",
+          "description": "Controlled value (the whole code as one string)."
+        },
+        "defaultValue": {
+          "type": "string",
+          "description": "Initial value (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: string) => void",
+          "description": "Called on every change with the whole code so far."
+        },
+        "onComplete": {
+          "type": "(value: string) => void",
+          "description": "Called once every cell is filled, with the full code."
+        },
+        "mode": {
+          "type": "'numeric' | 'alphanumeric'",
+          "default": "'numeric'",
+          "description": "Which characters a cell accepts; others are dropped, including from a paste."
+        },
+        "mask": {
+          "type": "boolean",
+          "description": "Hide the characters, for a PIN."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Visible group label. Inside a `<FormField label>` leave it off: the field's label names the group."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the group when there is no visible label."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "If true, the field is non-interactive."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Input>` and every other sized control."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "A row of hand-rolled single-character `<input>`s with manual focus moving, paste splitting and keyboard handling",
+      "antiPatternInstead": "`<OTPField length={6} onComplete={verify} />` inside a `<FormField>`; the Form value is the code as one string",
+      "description": "One-time code / PIN input: one cell per character with auto-advance, backspace-to-previous, paste distribution and SMS autofill (`autocomplete=\"one-time-code\"`), bound to a Form as one string"
     },
     {
       "name": "Pagination",
@@ -2352,6 +3286,9 @@
     {
       "name": "Popup",
       "import": "import { Popup } from '#toolcrib'",
+      "slots": [
+        "Trigger"
+      ],
       "props": {
         "id": {
           "type": "string",
@@ -2359,8 +3296,11 @@
         },
         "trigger": {
           "type": "ReactElement",
-          "required": true,
-          "description": "Required trigger element. The popup anchors to this element."
+          "description": "Trigger element -- both the popup's visual anchor point AND its\nclick/keyboard open control. Required unless `anchor` is given\ninstead (issue #502) -- the two are mutually exclusive.\nIt becomes the trigger itself, not a child of a wrapper: it receives the trigger's props, ARIA and ref, and focus returns to it on close, so it must be a native element or a component that forwards props and a ref to its DOM node (toolcrib's `<Button>` and `<Tooltip>` both do). A non-`<button>` native element gets `role=\"button\"` and keyboard activation automatically."
+        },
+        "anchor": {
+          "type": "ReactElement",
+          "description": "A wider element the popup should anchor its POSITION to, separate\nfrom what actually opens/closes it (issue #502) -- e.g. a date\nfield's whole bordered box, where only a small calendar-glyph button\ninside it should toggle the popup, not the field's editable segments.\nMutually exclusive with `trigger`: place a `<Popup.Trigger>` around\nthe real clickable element somewhere inside `anchor`'s own children\ninstead. Corner-squaring (matching every other connected popover in\nthe toolkit) applies to `anchor`'s own edges in this mode, not the\nnested trigger's.\n\nMust be a plain DOM element or a third-party component that forwards\na `style` prop straight through to its own root node (e.g. react-aria-\ncomponents' `Group`, DatePicker's own real usage) -- NOT a toolcrib\ncomponent. Every toolcrib component deliberately strips `style`/\n`className` (see `ai-docs/CORE.md`'s \"no component accepts style/\nclassName\" rule), so the corner-squaring this prop applies via a\ncloned `style` would be silently dropped for one. A toolcrib\ncomponent that needs to anchor a `<Popup>` should consult\n`useCornerSquaring`/expose its own `squareCorners` prop directly\ninstead of being passed here."
         },
         "placement": {
           "type": "'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'",
@@ -2396,6 +3336,11 @@
           "type": "string",
           "description": "Unique identifier included in emitted `progress:changed` events."
         },
+        "aria-label": {
+          "type": "string",
+          "required": true,
+          "description": "Accessible name for the underlying `role=\"progressbar\"` element.\nRequired, not optional: unlike a `<button>`, a progressbar has no\nvisible text content ARIA can derive a name from, and unlike\n`Slider`/`Input`, Progress has no `FormField`/`htmlFor` fallback\nlabeling path — there is no case where omitting this yields a real,\ncorrectly-named instance."
+        },
         "value": {
           "type": "number",
           "required": true,
@@ -2429,6 +3374,24 @@
       "slots": [
         "Option"
       ],
+      "slotProps": {
+        "Option": {
+          "value": {
+            "type": "string",
+            "required": true
+          },
+          "label": {
+            "type": "ReactNode",
+            "required": true
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "helperText": {
+            "type": "ReactNode"
+          }
+        }
+      },
       "props": {
         "name": {
           "type": "string",
@@ -2467,10 +3430,150 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size — standardized with `<Button>` and every other sized control. Drives both the radio dot diameter (via the same scale as `overrides.dotSize`) and the option label's font size."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the group. Only needed outside a `<FormField label>`, whose label names it already."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names the group. Used instead of the inherited `<FormField>` label when set."
         }
       },
       "category": "Form Controls",
       "description": "Single-select radio control bound to Form context, data-driven or compositional"
+    },
+    {
+      "name": "RangeCalendar",
+      "import": "import { RangeCalendar } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name included in emitted `rangecalendar:changed` events."
+        },
+        "value": {
+          "type": "CalendarDateRange | null",
+          "description": "Controlled selected range, as `@internationalized/date` `CalendarDate`s\n-- never raw JS `Date`s at this boundary."
+        },
+        "defaultValue": {
+          "type": "CalendarDateRange | null",
+          "description": "Initial selected range (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(value: CalendarDateRange) => void",
+          "description": "Change handler. Receives the newly selected range once both ends are picked."
+        },
+        "minValue": {
+          "type": "CalendarDate",
+          "description": "Earliest selectable date, inclusive."
+        },
+        "maxValue": {
+          "type": "CalendarDate",
+          "description": "Latest selectable date, inclusive."
+        },
+        "isDisabled": {
+          "type": "boolean",
+          "description": "If true, the whole calendar is non-interactive."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag controlling month/day names, week start day, and\ndate-grid layout. Fixed, not browser-auto-detected -- see `<TimeField>`'s\nown doc for why an explicit default prevents an SSR hydration mismatch."
+        },
+        "overrides": {
+          "type": "Partial<DatePickerSliceState>",
+          "description": "Per-instance override for grid cell size. `overrides.cellSize` wins over `size` below if both are set."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the calendar grid. Required for a meaningful accessible name unless `aria-labelledby` is given instead."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
+        }
+      },
+      "category": "Form Controls",
+      "antiPatternAvoid": "Build a date range from two separate `<Calendar>`s with hand-written \"end must be after start\" logic",
+      "antiPatternInstead": "Use `<RangeCalendar>` (or `<DateRangePicker>` for a field + popover) — one grid, start/end ordering and keyboard range selection handled for you",
+      "description": "Month grid for selecting an inclusive range of dates (click the start, then the end), built on React Aria Components"
+    },
+    {
+      "name": "RangeSlider",
+      "import": "import { RangeSlider } from '#toolcrib'",
+      "props": {
+        "id": {
+          "type": "string",
+          "description": "Element id, applied to the lower thumb. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted. Each thumb is named through `aria-labelledby` (see `aria-label`)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted. Used in event bus payloads."
+        },
+        "value": {
+          "type": "[number, number]",
+          "description": "Controlled `[lower, upper]` value."
+        },
+        "defaultValue": {
+          "type": "[number, number]",
+          "default": "[min, max]",
+          "description": "Initial `[lower, upper]` value (uncontrolled)."
+        },
+        "min": {
+          "type": "number",
+          "default": "0",
+          "description": "Minimum value."
+        },
+        "max": {
+          "type": "number",
+          "default": "100",
+          "description": "Maximum value."
+        },
+        "step": {
+          "type": "number",
+          "default": "1",
+          "description": "Step increment."
+        },
+        "minStepsBetweenThumbs": {
+          "type": "number",
+          "default": "0",
+          "description": "Minimum number of `step`s the two thumbs must stay apart. `0` lets them meet."
+        },
+        "onChange": {
+          "type": "(value: [number, number]) => void",
+          "description": "Change handler. Receives the new `[lower, upper]` value."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "If true, the slider is non-interactive."
+        },
+        "commitOnRelease": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Same as `<Slider>`'s `commitOnRelease`: notify only when a drag ends (or on a discrete keyboard step), while the thumbs still track the pointer."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the control as a whole. Only needed outside a\n`<FormField label=\"...\">`. Each thumb's name combines this (or the\nFormField's label) with its own suffix — \"Price, Minimum\" / \"Price,\nMaximum\" — since two thumbs can't share one `<label htmlFor>`."
+        },
+        "thumbLabels": {
+          "type": "[string, string]",
+          "default": "the locale's `rangeSlider.minimum` / `rangeSlider.maximum`",
+          "description": "Per-thumb name suffixes."
+        },
+        "overrides": {
+          "type": "Partial<SliderSliceState>",
+          "description": "Per-instance overrides for track height and thumb size. Shared with `<Slider>`."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Two-thumb range control (lower/upper bound) built on Base UI Slider, styled identically to Slider"
     },
     {
       "name": "Rating",
@@ -2479,6 +3582,11 @@
         "name": {
           "type": "string",
           "description": "Field name included in emitted `rating:changed` events. Not a visible or accessible label -- see `aria-label`."
+        },
+        "aria-label": {
+          "type": "string",
+          "default": "'Rating'",
+          "description": "Accessible name for the control's radiogroup, for a screen-reader user\nwho otherwise has no visual context for what's being rated (e.g. no\nexternal heading/label already associated with it). `name` is never\nused for this -- it's an internal field identifier for emitted events,\nnot human-readable text."
         },
         "value": {
           "type": "number",
@@ -2515,8 +3623,8 @@
       },
       "category": "Form Controls",
       "antiPatternAvoid": "Build a row of clickable star `<span>`s with manual hover/click state for a rating input",
-      "antiPatternInstead": "Use `<Rating>` — built on Radix `RadioGroup`, inherits real keyboard operability and `aria-checked` semantics instead of approximating them",
-      "description": "Star rating control built on Radix RadioGroup, or a read-only fractional-fill display"
+      "antiPatternInstead": "Use `<Rating>` — built on a Base UI radio group, inherits real keyboard operability and `aria-checked` semantics instead of approximating them",
+      "description": "Star rating control built on a Base UI radio group, or a read-only fractional-fill display"
     },
     {
       "name": "ScaleLegend",
@@ -2589,6 +3697,10 @@
           "default": "'Select option...'",
           "description": "Placeholder text when no value is selected."
         },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the trigger. Only needed when this `Select` isn't\ninside a `<FormField label=\"...\">` — the `<label htmlFor>` that\nrenders provides the accessible name already in that case, the same\nway it does for `Input`/`Slider`/`Combobox`. Unlike those, `Select`\nhad no such escape hatch until this was added — a real gap for any\nstandalone (non-`FormField`) usage, the trigger's own selected-value\ntext notwithstanding (a combobox takes its name from a label, not from\nthe value it displays)."
+        },
         "options": {
           "type": "SelectOptionData[]",
           "required": true,
@@ -2618,10 +3730,14 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
-      "description": "Dropdown select control bound to Form context, built on Radix Select"
+      "description": "Dropdown select control bound to Form context: a select-only combobox over the toolkit's own Listbox"
     },
     {
       "name": "Separator",
@@ -2678,12 +3794,20 @@
         "overrides": {
           "type": "Partial<SidebarSliceState>",
           "description": "Per-instance override for nav item spacing."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the nav landmark. Required for a meaningful accessible name unless `aria-labelledby` is given instead — without either, the nav landmark has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "category": "Containers",
       "antiPatternAvoid": "Hand-roll a left/right nav rail with a raw `<nav>`/`<ul>` and manual active-link state",
       "antiPatternInstead": "Use `<Sidebar>` (inside `<AppShell.Sidebar>`) — active-item tracking and the correct icon-only collapsed rendering come for free",
-      "description": "Vertical nav-item list built on Radix NavigationMenu, with a collapsed icon-only mode"
+      "description": "Vertical nav-item list built on Base UI NavigationMenu, with a collapsed icon-only mode"
     },
     {
       "name": "Skeleton",
@@ -2716,7 +3840,7 @@
       "props": {
         "id": {
           "type": "string",
-          "description": "Element id. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted — needed for `<FormField>`'s `<label htmlFor>` to associate with this control."
+          "description": "Element id for the thumb. Auto-derived from `name` (or the inherited `<FormField>` name) if omitted. Inside a `<FormField label>`, the thumb's accessible name comes from that label via `aria-labelledby`."
         },
         "name": {
           "type": "string",
@@ -2760,9 +3884,13 @@
           "default": "false",
           "description": "If true, `onChange`/`slider:changed` only fire once, when the drag\nends (or on a discrete keyboard step) — not continuously on every\ntick while dragging. The thumb still tracks the pointer smoothly\neither way (an internal buffer drives its visual position); this only\nchanges when the *consumer* is notified. Opt-in, not the default —\nlive per-tick updates are the right choice for most sliders (e.g. a\nreal-time value preview), including most of the Theme Designer's own\n(color/timing values, which don't feed back into layout). It matters\nfor a specific narrower case: a slider whose value feeds back into\nthe page's own layout — the Theme Designer's Master Font Size above\nall, since every `rem` value in the whole UI derives from it —  where\nrecalculating on every tick can resize or reposition the very slider\nbeing dragged out from under the pointer mid-gesture, not just waste\na render. Deferring to release keeps the drag itself trackable\nregardless of what the eventual committed value ends up changing."
         },
-        "ariaLabel": {
+        "aria-label": {
           "type": "string",
           "description": "Accessible name announced by screen readers. Only needed when this\n`Slider` isn't inside a `<FormField label=\"...\">` — the `<label\nhtmlFor>` that renders provides the accessible name already in that\ncase, the same way it does for `Input`/`Select`/`Combobox`."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Id of the element that names this control. Used instead of the inherited `<FormField>` label when set."
         },
         "overrides": {
           "type": "Partial<SliderSliceState>",
@@ -2770,7 +3898,7 @@
         }
       },
       "category": "Form Controls",
-      "description": "Range input control built on Radix Slider"
+      "description": "Range input control built on Base UI Slider"
     },
     {
       "name": "Sparkline",
@@ -2825,6 +3953,18 @@
       "slots": [
         "Panel"
       ],
+      "slotProps": {
+        "Panel": {
+          "squareCorners": {
+            "type": "'auto' | 'top' | 'bottom' | 'left' | 'right' | 'none'",
+            "default": "undefined",
+            "description": "Which corners to square off. `'auto'` defers to the layout domain."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Panel": "Squares off its own corners based on its position in the splitter; a toolcrib component nested inside it (e.g. `<Card>`, `<Content>`) squares its own corners independently via `useCornerSquaring`/the ambient layout domain — Panel no longer forwards a computed `style` into component children, only into plain DOM element children, which have no other way to receive it (see `Splitter.Panel`'s implementation)."
+      },
       "props": {
         "id": {
           "type": "string",
@@ -2848,7 +3988,59 @@
       },
       "constraints": "Requires exactly 2 children",
       "category": "Containers",
+      "antiPatternAvoid": "When computing a pixel-exact `split` via `splitter:split_changed` (e.g. \"collapse this panel to exactly its own header's height\"), measuring an inner child's content box instead of the actual outermost element whose full rendered box (padding/border included) needs to fit",
+      "antiPatternInstead": "Measure the real outer element (e.g. a `Card.Header`, not the `<Toolbar>` inside it) with `getBoundingClientRect()`, and add half of `SPLITTER_HANDLE_SIZE_REM` (in px) before converting the target height to a percentage — both omissions clip the panel identically regardless of viewport size, confirmed directly via real Playwright measurement, not assumed",
       "description": "Resizable two-panel layout with automatic corner-squaring domain"
+    },
+    {
+      "name": "Stat",
+      "import": "import { Stat } from '#toolcrib'",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "description": "What the metric is, e.g. \"Revenue\". Shown above the value."
+        },
+        "value": {
+          "type": "number | string",
+          "required": true,
+          "description": "The current value. A number is formatted with `format` and `locale`; a string is shown as given."
+        },
+        "format": {
+          "type": "Intl.NumberFormatOptions",
+          "default": "plain number",
+          "description": "Options for formatting a numeric `value`, e.g. `{ style: 'currency', currency: 'USD' }`."
+        },
+        "delta": {
+          "type": "number",
+          "description": "How the value changed, in the units of `deltaFormat`. Its sign is the\ndirection (positive up, negative down, zero unchanged). Omit it for a tile\nwith no comparison."
+        },
+        "deltaFormat": {
+          "type": "Intl.NumberFormatOptions",
+          "default": "percent with at most one decimal, so `0.124` shows as `+12.4%`",
+          "description": "Options for formatting `delta`."
+        },
+        "deltaLabel": {
+          "type": "string",
+          "description": "What the change is measured against, e.g. \"vs last week\". Shown beside the change and included in its spoken form."
+        },
+        "upIsGood": {
+          "type": "boolean",
+          "default": "true",
+          "description": "Whether an increase is good news. Decides the colour of the change: green\nwhen it moved the good way, red when it moved the bad way. Set it to\n`false` for a metric like churn or latency."
+        },
+        "trend": {
+          "type": "number[]",
+          "description": "Values behind the metric, oldest first, drawn as a small trend line."
+        },
+        "locale": {
+          "type": "string",
+          "default": "'en-US'",
+          "description": "BCP 47 locale tag for number formatting. Fixed rather than read from the\nbrowser, for the same hydration-safety reason as `<NumberField>`."
+        }
+      },
+      "category": "Data Display",
+      "description": "KPI tile: one metric with its value, a change since the last period (read out in words, coloured by whether up is good) and an optional trend line"
     },
     {
       "name": "Stepper",
@@ -2884,8 +4076,100 @@
       "constraints": "Forward navigation past a step with `formId` set is blocked until that step's `<Form>` reports `isValid: true`",
       "category": "Data Display",
       "antiPatternAvoid": "Hand-roll a multi-step wizard with `useState` for the active step and manual \"can I advance\" checks",
-      "antiPatternInstead": "Use `<Stepper>` — built on the same Radix Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId`",
-      "description": "Linear step wizard built on the same Radix Tabs primitive as `<TabStrip>`, with per-step Form validation gating"
+      "antiPatternInstead": "Use `<Stepper>` — built on the same Base UI Tabs primitive as `<TabStrip>`, and blocks forward navigation past a step automatically once you set that step's `formId`",
+      "description": "Linear step wizard built on the same Base UI Tabs primitive as `<TabStrip>`, with per-step Form validation gating"
+    },
+    {
+      "name": "SubmitButton",
+      "import": "import { SubmitButton } from '#toolcrib'",
+      "props": {
+        "variant": {
+          "type": "'primary' | 'secondary' | 'outline' | 'danger' | 'ghost'",
+          "default": "'primary'",
+          "description": "Visual style variant.\n- `'primary'` — Filled with primary colour.\n- `'secondary'` — Filled with secondary colour.\n- `'outline'` — Transparent with border.\n- `'danger'` — Filled with error colour.\n- `'ghost'` — No background or border."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Button size controlling padding and font-size."
+        },
+        "paddingMode": {
+          "type": "'compact' | 'normal' | 'spacious'",
+          "description": "Override padding using the theme padding token scale."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "leadingIcon": {
+          "type": "ReactNode",
+          "description": "Icon rendered before the label text. Alias for `icon`."
+        },
+        "trailingIcon": {
+          "type": "ReactNode",
+          "description": "Icon rendered after the label text."
+        },
+        "icon": {
+          "type": "ReactNode",
+          "description": "Shorthand for `leadingIcon`."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Apply a subtheme colour. Falls back to the nearest `<StyleDomainProvider>`'s if omitted."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a trigger button whose\ncorner needs to flatten against an open `<Popup>`/`<DropdownMenu>`.\nApplied after the button's own computed radius, so it wins."
+        },
+        "overrides": {
+          "type": "Partial<ButtonSliceState>",
+          "description": "Per-instance overrides for label weight and icon spacing. Separate from\n`subtheme` above (Button already resolves that itself via\n`useResolvedSubtheme`, unrelated to this slice's own two fields)."
+        }
+      },
+      "category": "Form Controls",
+      "description": "`<Button type=\"submit\">` that stays disabled while the enclosing Form is submitting; takes every Button prop, `ref` included"
+    },
+    {
+      "name": "Switch",
+      "import": "import { Switch } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "label": {
+          "type": "ReactNode",
+          "description": "Label text rendered beside the switch."
+        },
+        "checked": {
+          "type": "boolean",
+          "description": "Controlled checked state."
+        },
+        "defaultChecked": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Initial checked state when neither `checked` nor a Form binding is present (uncontrolled)."
+        },
+        "onChange": {
+          "type": "(checked: boolean) => void",
+          "description": "Change handler. Receives the new boolean value directly, like `<Checkbox>`'s."
+        },
+        "overrides": {
+          "type": "Partial<ToggleControlSliceState>",
+          "description": "Per-instance size override. Shared with `<Checkbox>`."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member.\nSee `<Button>`'s own identical prop for the general pattern."
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": "false",
+          "description": "Ignore user interaction and dim the control. A disabled enclosing `<Fieldset>` disables it too."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Boolean on/off switch with a sliding track, bound to Form context; `onChange` receives the new `boolean`; `ref` reaches the focusable switch element"
     },
     {
       "name": "TabStrip",
@@ -2895,6 +4179,21 @@
         "Panel"
       ],
       "slotProps": {
+        "Tab": {
+          "id": {
+            "type": "string",
+            "required": true
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "onClick": {
+            "type": "() => void"
+          },
+          "disabled": {
+            "type": "boolean"
+          }
+        },
         "Panel": {
           "groupId": {
             "type": "string",
@@ -2905,8 +4204,16 @@
             "type": "string",
             "required": true,
             "description": "The tab id (matching one of that TabStrip's `items`) this panel renders for."
+          },
+          "fill": {
+            "type": "boolean",
+            "default": "false",
+            "description": "Fill the parent's remaining height instead of sizing to the content. Turn\nit on when the panel is the growing region of a full-height layout (e.g.\ninside `<Content.Grow>`), so a `height: 100%` child such as a virtualized\n`<DataTable>` gets a definite height to resolve against. Off by default: in\na content-sized flex column (`<VStack>`, a `<Card>` body) a filling panel\nhas no free space and collapses to 0px."
           }
         }
+      },
+      "slotDescriptions": {
+        "Panel": "When `activeId` is provided, the panel auto-hides if `activeId !== value`. Omit `activeId` to always render (useful for manual conditional rendering)."
       },
       "props": {
         "id": {
@@ -2939,6 +4246,87 @@
       },
       "category": "Data Display",
       "description": "Scrollable tab header with filmstrip overflow. Use TabStrip.Panel for content"
+    },
+    {
+      "name": "Text",
+      "import": "import { Text } from '#toolcrib'",
+      "props": {
+        "as": {
+          "type": "'p' | 'span'",
+          "default": "'p'",
+          "description": "Element to render: `'p'` for a paragraph, `'span'` for inline text."
+        },
+        "size": {
+          "type": "'xs' | 'sm' | 'md' | 'lg' | 'xl'",
+          "description": "Step on the theme's text size ramp (`--ai-text-size-*`). Inherits the surrounding size when omitted."
+        },
+        "tone": {
+          "type": "'default' | 'secondary'",
+          "description": "`'default'` is the theme's main text color; `'secondary'` its muted one. Inherits the surrounding color when omitted, so text inside a filled Button or an Alert keeps their color."
+        },
+        "weight": {
+          "type": "'normal' | 'medium' | 'semibold' | 'bold'",
+          "description": "Font weight token. Inherits when omitted."
+        },
+        "mono": {
+          "type": "boolean",
+          "description": "Monospace family, for codes and identifiers."
+        },
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Status color for the text. Falls back to the nearest `<StyleDomainProvider>`'s. Wins over `tone` and `variant`."
+        },
+        "variant": {
+          "type": "'primary' | 'secondary'",
+          "description": "Identity color (`primary`/`secondary`) for the text. Ignored if a subtheme resolves; wins over `tone`."
+        },
+        "overrides": {
+          "type": "Partial<TextSliceState>",
+          "description": "Per-instance override for the size ramp (`scale`)."
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "'ltr' | 'rtl' | 'auto'"
+        }
+      },
+      "constraints": "`as` is `'p'` or `'span'` only. Sets no margin; space paragraphs with `<VStack gap>`. Headings, labels and links have their own components",
+      "category": "Layout Primitives",
+      "antiPatternAvoid": "A raw `<p style={{ fontSize: '0.8125rem', color: 'var(--ai-text-secondary)' }}>` or a styled `<span>` for secondary text",
+      "antiPatternInstead": "`<Text size=\"sm\" tone=\"secondary\">`, or `<Text as=\"span\" ...>` inline",
+      "description": "Themed paragraph or inline text: size, tone, weight and status color from theme tokens, never literal styles"
+    },
+    {
+      "name": "Textarea",
+      "import": "import { Textarea } from '#toolcrib'",
+      "props": {
+        "name": {
+          "type": "string",
+          "description": "Field name. Auto-inherited from parent `<FormField>` if omitted."
+        },
+        "cornerRadiusMode": {
+          "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+          "description": "Override corner radius using the theme radius token scale."
+        },
+        "overrides": {
+          "type": "Partial<InputSliceState> & { subtheme?: SubthemeName }",
+          "description": "Per-instance overrides for padding and border width. Shared with `<Input>`. Only applies at the default `size=\"md\"` — see `<Input>`'s own `size` doc."
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "default": "'md'",
+          "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        }
+      },
+      "category": "Form Controls",
+      "description": "Multi-line text input bound to Form context, sized and themed like Input"
     },
     {
       "name": "ThemeEditor",
@@ -3003,6 +4391,18 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the field, for a caller that already shows a\nvisible label some other way and doesn't want `label` above rendering\na second, visually duplicate one — same reasoning as `<DatePicker>`'s\nown identical prop. Ignored if `label` is set. Required for a\nmeaningful accessible name unless `aria-labelledby` or `label` is\ngiven instead — without any of the three, React Aria's own\n`useTimeField` warns and the field has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string. Ignored if `label` is set."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. for a `<UIGroup>` member. See `<Button>`'s own identical prop for the general pattern."
         }
       },
       "category": "Form Controls",
@@ -3090,6 +4490,14 @@
           "type": "'sm' | 'md' | 'lg'",
           "default": "'md'",
           "description": "Control size, standardized with `<Button>` and every other sized control so instances line up in a `<UIGroup>` row."
+        },
+        "squareCorners": {
+          "type": "SquareCornerOption",
+          "description": "Explicit corner-squaring override, e.g. when this ToggleGroup is a\n`<UIGroup>` member and an ambient value from context isn't correct\nfor some other reason. Takes precedence over the value `<UIGroup>`\nitself supplies automatically — see `<Button>`'s own identical prop\nfor the general pattern."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the whole group (the root's `role=\"radiogroup\"`\nor `role=\"group\"`) — e.g. \"Row density\" for a set of density options. Distinct\nfrom each option's own accessible name (its `label`), the same way a\nnative `<fieldset><legend>` names the group without repeating into\nevery `<input>` inside it."
         }
       },
       "category": "Form Controls",
@@ -3105,6 +4513,55 @@
         "Button",
         "Separator"
       ],
+      "slotProps": {
+        "Button": {
+          "variant": {
+            "type": "'primary' | 'secondary' | 'outline' | 'danger' | 'ghost'",
+            "default": "'primary'",
+            "description": "Visual style variant.\n- `'primary'` — Filled with primary colour.\n- `'secondary'` — Filled with secondary colour.\n- `'outline'` — Transparent with border.\n- `'danger'` — Filled with error colour.\n- `'ghost'` — No background or border."
+          },
+          "size": {
+            "type": "'sm' | 'md' | 'lg'",
+            "default": "'md'",
+            "description": "Button size controlling padding and font-size."
+          },
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Override padding using the theme padding token scale."
+          },
+          "cornerRadiusMode": {
+            "type": "'sharp' | 'subtle' | 'rounded' | 'pill'",
+            "description": "Override corner radius using the theme radius token scale."
+          },
+          "leadingIcon": {
+            "type": "ReactNode",
+            "description": "Icon rendered before the label text. Alias for `icon`."
+          },
+          "trailingIcon": {
+            "type": "ReactNode",
+            "description": "Icon rendered after the label text."
+          },
+          "icon": {
+            "type": "ReactNode",
+            "description": "Shorthand for `leadingIcon`."
+          },
+          "subtheme": {
+            "type": "'error' | 'success' | 'warning' | 'info'",
+            "description": "Apply a subtheme colour. Falls back to the nearest `<StyleDomainProvider>`'s if omitted."
+          },
+          "squareCorners": {
+            "type": "SquareCornerOption",
+            "description": "Explicit corner-squaring override, e.g. for a trigger button whose\ncorner needs to flatten against an open `<Popup>`/`<DropdownMenu>`.\nApplied after the button's own computed radius, so it wins."
+          },
+          "overrides": {
+            "type": "Partial<ButtonSliceState>",
+            "description": "Per-instance overrides for label weight and icon spacing. Separate from\n`subtheme` above (Button already resolves that itself via\n`useResolvedSubtheme`, unrelated to this slice's own two fields)."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Button": "Supports five variants, three sizes, subtheme colouring, and icon slots."
+      },
       "props": {
         "paddingMode": {
           "type": "'compact' | 'normal' | 'spacious'",
@@ -3121,7 +4578,7 @@
         "orientation": {
           "type": "'horizontal' | 'vertical'",
           "default": "'horizontal'",
-          "description": "Arrow-key axis for the roving-tabindex group Radix's own `Toolbar.Root`\nestablishes. Only affects children rendered via `<Toolbar.Button>` —\narbitrary children (a plain `<Button>`, a `<Select>`, a `<Tooltip>`\ntrigger) never joined the group in the first place, so they keep normal\ntab order regardless of this setting."
+          "description": "Arrow-key axis for the roving-tabindex group the toolbar root\nestablishes. Only affects children rendered via `<Toolbar.Button>` —\narbitrary children (a plain `<Button>`, a `<Select>`, a `<Tooltip>`\ntrigger) never joined the group in the first place, so they keep normal\ntab order regardless of this setting."
         },
         "overrides": {
           "type": "Partial<ToolbarSliceState>",
@@ -3421,7 +4878,7 @@
       "value": {
         "type": "string",
         "required": true,
-        "description": "Unique string value emitted in the `commandpalette:item_selected` event, and used by `cmdk` for filtering/selection identity."
+        "description": "Unique string value emitted in the `commandpalette:item_selected` event. Also what the search matches when `label` isn't plain text."
       },
       "label": {
         "type": "ReactNode",
@@ -3442,7 +4899,7 @@
       },
       "keywords": {
         "type": "string[]",
-        "description": "Additional terms `cmdk`'s fuzzy filter should match against, beyond `label`'s own text."
+        "description": "Additional terms the search matches against, beyond the label's own text."
       },
       "onSelect": {
         "type": "() => void",
@@ -3504,6 +4961,63 @@
       "width": {
         "type": "string | number",
         "description": "Column width as CSS value (e.g. `'12rem'`) or number (px)."
+      },
+      "resizable": {
+        "type": "boolean",
+        "default": "false",
+        "description": "If true, shows a drag handle on this column's trailing edge, resizable\nby mouse/touch or (with the handle focused) Left/Right arrow keys\n(Shift for a bigger step), Home (minimum), and End. Works regardless\nof whether `width` above is set, a CSS string, or omitted entirely --\na drag measures this column's own real rendered width as its starting\npoint rather than requiring a pre-declared pixel value."
+      },
+      "minWidth": {
+        "type": "number",
+        "default": "40",
+        "description": "Minimum width (px) a drag or arrow-key resize can shrink this column\nto -- prevents a variant of the real `table-layout: fixed`\ncolumn-collapse defect documented in this project's own competitive\nresearch. Only meaningful alongside `resizable`."
+      },
+      "pinned": {
+        "type": "'left' | 'right'",
+        "description": "Freezes this column at the left or right edge of the scrollable grid\nbody, staying visible (via CSS `position: sticky`) while the user\nscrolls the rest of the columns horizontally underneath it -- the same\nmechanism `<DataTable>`'s own sticky header already uses, extended to\nthe horizontal axis (issue #341). Multiple columns can be pinned to the\nsame side; they stack in `columns` order (left-pinned) or reverse order\n(right-pinned, so the last-declared right-pinned column sits flush\nagainst the grid's own right edge). When `selectable` is on and at\nleast one column is pinned `'left'`, the selection checkbox/radio\ncolumn automatically pins alongside it too (there's no reason to freeze\na data column but let selection scroll away); the same applies to\n`rowCommands`' trailing actions column whenever any column is pinned\n`'right'`."
+      },
+      "editable": {
+        "type": "boolean",
+        "default": "true",
+        "description": "Set false to keep this column read-only even while its row is being\nedited (`<DataTable editable>`, issue #545) — rendered via this\ncolumn's own `render` in the edit co-grid instead of an editable\nfield. Has no effect at all when `editable` is off."
+      },
+      "editEditor": {
+        "type": "(context: CellContext<T>) => ReactNode",
+        "description": "Default+slot override for this column's field in the edit co-grid —\nmirrors `render`'s own shape (same `CellContext`), since a custom\neditor needs the same live value/row/index access `render` gets, not\na static JSX slot. Falls back to a plain, density-compact `<Input>`\nbound to `key` when omitted. Has no effect when this column's own\n`editable` is `false`, or when the table's `editable` is off.\n\n**Called as a plain function (`col.editEditor(context)`), not\nrendered as JSX** — a real, Gemini-caught defect on this exact PR:\na custom editor that calls a Hook (`useOptionalFormContext()`,\ne.g.) directly at its own top level runs that Hook call BEFORE\n`<Form>`'s own context provider is active (this function executes\nsynchronously while building `<Form>`'s children, not after `<Form>`\nitself has rendered), so the Hook always sees no provider -- and\nseparately violates the Rules of Hooks, since it's invoked from\ninside a `.map()` rather than from within an actual component. If\nyour editor needs a Hook, put the Hook inside a real, separately\ndeclared component and return that component rendered as JSX\ninstead: `editEditor: (context) => <MyEditor {...context} />`, not\n`editEditor: MyEditor` (which calls `MyEditor` directly rather than\nmounting it as a component at all) or a Hook called inline in the\narrow function itself."
+      }
+    },
+    "SortDescriptor": {
+      "key": {
+        "type": "string",
+        "required": true
+      },
+      "direction": {
+        "type": "'asc' | 'desc'",
+        "required": true
+      }
+    },
+    "RowCommand": {
+      "id": {
+        "type": "string",
+        "required": true,
+        "description": "Stable id for this action -- becomes `command` in the `datatable:row_command` event emitted on click."
+      },
+      "label": {
+        "type": "string",
+        "required": true,
+        "description": "Visible label -- also the button's `aria-label`, since the rendered button is icon-only when `icon` is given."
+      },
+      "icon": {
+        "type": "string",
+        "description": "Optional leading icon/glyph shown instead of the text label (the label still becomes `aria-label`/`title`)."
+      },
+      "isVisible": {
+        "type": "(record: T, index: number) => boolean",
+        "description": "Omit this specific command for a given row (e.g. hide \"Delete\" for a protected record) -- returning false skips rendering the button entirely, not just disables it."
+      },
+      "isDisabled": {
+        "type": "(record: T, index: number) => boolean",
+        "description": "Render this command's button disabled (still occupying its usual\nspace) for a given row, rather than hiding it via `isVisible` --\ne.g. disabling \"Edit\" while that row is already being edited,\ninstead of removing it and shifting every other command button's\nposition. Unlike `isVisible`, this never changes how many buttons a\nrow's actions cell renders."
       }
     },
     "FilmstripItem": {
@@ -3524,6 +5038,26 @@
       "disabled": {
         "type": "boolean",
         "description": "If true, the item cannot be selected."
+      }
+    },
+    "CheckboxOption": {
+      "label": {
+        "type": "ReactNode",
+        "required": true,
+        "description": "Display label for this checkbox."
+      },
+      "value": {
+        "type": "string",
+        "required": true,
+        "description": "Value added to the group's array when this box is checked."
+      },
+      "disabled": {
+        "type": "boolean",
+        "description": "If true, this option can't be toggled."
+      },
+      "helperText": {
+        "type": "ReactNode",
+        "description": "Additional help text below the option label."
       }
     },
     "ListboxOptionData": {
@@ -3580,6 +5114,10 @@
       "disabled": {
         "type": "boolean",
         "description": "If true, the option is visible but not selectable."
+      },
+      "textValue": {
+        "type": "string",
+        "description": "Plain text for typeahead matching when `label` isn't a plain string\n(an icon plus text, say). Defaults to the text found in `label`."
       }
     },
     "GalleryItem": {

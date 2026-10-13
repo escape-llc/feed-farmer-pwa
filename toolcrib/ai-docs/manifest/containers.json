@@ -1,10 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "toolcrib",
-  "version": "0.14.0",
+  "version": "0.16.0",
   "description": "Per-category slice of component-manifest.json's \"components\" array (category: Containers), for on-demand detail without loading the full manifest. See component-manifest.json for themeSystem/zIndexScale/eventBus and cross-category data.",
   "category": "Containers",
   "components": [
+    {
+      "name": "Alert",
+      "import": "import { Alert } from '#toolcrib'",
+      "slots": [
+        "Title",
+        "Description"
+      ],
+      "props": {
+        "subtheme": {
+          "type": "'error' | 'success' | 'warning' | 'info'",
+          "description": "Status color. Falls back to the nearest `<StyleDomainProvider>`'s, then `'info'`. Wins over `variant`."
+        },
+        "variant": {
+          "type": "'primary' | 'secondary'",
+          "description": "Identity color (`primary`/`secondary`) for a branded, non-status callout. Ignored if a subtheme resolves."
+        },
+        "appearance": {
+          "type": "'soft' | 'solid' | 'outline'",
+          "default": "'soft'",
+          "description": "Visual treatment for the resolved color."
+        },
+        "icon": {
+          "type": "ReactNode | false",
+          "description": "Replaces the status icon. `false` hides it. A default icon matches the subtheme (info, success, warning, error); a branded `variant` callout gets the info icon."
+        },
+        "role": {
+          "type": "'alert' | 'status' | 'none'",
+          "description": "Live-region role. `'alert'` (assertive) for error/warning, `'status'`\n(polite) otherwise, by default -- screen readers announce the content\nwhen it appears. `'none'` for a static callout that shouldn't be\nannounced at all."
+        },
+        "action": {
+          "type": "ReactNode",
+          "description": "An action rendered after the text, e.g. a `<Button size=\"sm\">`."
+        },
+        "onDismiss": {
+          "type": "() => void",
+          "description": "Renders a close button; called when it's pressed. The Alert doesn't hide itself -- remove it from the tree in this callback. Emits `alert:dismissed`."
+        }
+      },
+      "category": "Containers",
+      "antiPatternAvoid": "Open an `<AlertDialog>`/`<Modal>` for a non-blocking message, or hand-roll a tinted `<div>` with an emoji and no `role`",
+      "antiPatternInstead": "Use `<Alert>` for a message that belongs next to its content (role `alert`/`status` announces it); `<AlertDialog>` only when the user must decide before continuing",
+      "description": "Inline callout (status icon, title, description, optional action and dismiss) with live-region semantics — in the page flow, never blocking"
+    },
     {
       "name": "AppShell",
       "import": "import { AppShell } from '#toolcrib'",
@@ -13,6 +56,31 @@
         "Main",
         "Sidebar"
       ],
+      "slotProps": {
+        "Header": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Main": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Sidebar": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Header": "Renders as a `<header>` with themed padding, background, and a bottom border.",
+        "Main": "Renders as a `<main>` that fills remaining vertical space.",
+        "Sidebar": "Renders as an `<aside>` with a fixed themed width, only meaningful when the parent `<AppShell>`'s `layout` is `'sidebar-left'`/`'sidebar-right'`."
+      },
       "props": {
         "layout": {
           "type": "'default' | 'sidebar-left' | 'sidebar-right'",
@@ -39,6 +107,37 @@
         "Footer",
         "Actions"
       ],
+      "slotProps": {
+        "Header": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        },
+        "Content": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          },
+          "layout": {
+            "type": "'default' | 'auto'",
+            "default": "'default'",
+            "description": "`'auto'` enables flex column layout with overflow hidden and minHeight: 0,\nuseful for embedding scrollable or virtualized content."
+          }
+        },
+        "Footer": {
+          "paddingMode": {
+            "type": "'compact' | 'normal' | 'spacious'",
+            "description": "Overrides the default padding using the theme padding token scale."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Header": "Renders with bottom border, bold text.",
+        "Content": "Main body area of the card.",
+        "Footer": "Renders with top border and container background.",
+        "Actions": "Flex row aligned to the end, typically used inside Footer."
+      },
       "props": {
         "layout": {
           "type": "'default' | 'auto'",
@@ -132,7 +231,7 @@
         },
         "onVisibilityChange": {
           "type": "(state: ContentVisibilityState) => void",
-          "description": "Called when this content's rendering is skipped or resumed by the\nbrowser — e.g. to pause/resume an expensive child (a video, a live\nchart, a canvas animation) while it's off-screen. Optional: most\nchildren don't do continuous work and don't need this."
+          "description": "Called when this content's rendering is skipped or resumed by the\nbrowser — e.g. to pause/resume an expensive child (a video, a live\nchart, a canvas animation) while it's off-screen. The initial state is\nreported too, so content that starts on screen still gets a\n`{ skipped: false }` call, and work can be gated on it. Optional: most\nchildren don't do continuous work and don't need this."
         }
       },
       "category": "Containers",
@@ -197,12 +296,20 @@
         "overrides": {
           "type": "Partial<SidebarSliceState>",
           "description": "Per-instance override for nav item spacing."
+        },
+        "aria-label": {
+          "type": "string",
+          "description": "Accessible name for the nav landmark. Required for a meaningful accessible name unless `aria-labelledby` is given instead — without either, the nav landmark has none at all."
+        },
+        "aria-labelledby": {
+          "type": "string",
+          "description": "Same as `aria-label`, but referencing an existing visible label element's id instead of a literal string."
         }
       },
       "category": "Containers",
       "antiPatternAvoid": "Hand-roll a left/right nav rail with a raw `<nav>`/`<ul>` and manual active-link state",
       "antiPatternInstead": "Use `<Sidebar>` (inside `<AppShell.Sidebar>`) — active-item tracking and the correct icon-only collapsed rendering come for free",
-      "description": "Vertical nav-item list built on Radix NavigationMenu, with a collapsed icon-only mode"
+      "description": "Vertical nav-item list built on Base UI NavigationMenu, with a collapsed icon-only mode"
     },
     {
       "name": "Splitter",
@@ -210,6 +317,18 @@
       "slots": [
         "Panel"
       ],
+      "slotProps": {
+        "Panel": {
+          "squareCorners": {
+            "type": "'auto' | 'top' | 'bottom' | 'left' | 'right' | 'none'",
+            "default": "undefined",
+            "description": "Which corners to square off. `'auto'` defers to the layout domain."
+          }
+        }
+      },
+      "slotDescriptions": {
+        "Panel": "Squares off its own corners based on its position in the splitter; a toolcrib component nested inside it (e.g. `<Card>`, `<Content>`) squares its own corners independently via `useCornerSquaring`/the ambient layout domain — Panel no longer forwards a computed `style` into component children, only into plain DOM element children, which have no other way to receive it (see `Splitter.Panel`'s implementation)."
+      },
       "props": {
         "id": {
           "type": "string",
@@ -233,6 +352,8 @@
       },
       "constraints": "Requires exactly 2 children",
       "category": "Containers",
+      "antiPatternAvoid": "When computing a pixel-exact `split` via `splitter:split_changed` (e.g. \"collapse this panel to exactly its own header's height\"), measuring an inner child's content box instead of the actual outermost element whose full rendered box (padding/border included) needs to fit",
+      "antiPatternInstead": "Measure the real outer element (e.g. a `Card.Header`, not the `<Toolbar>` inside it) with `getBoundingClientRect()`, and add half of `SPLITTER_HANDLE_SIZE_REM` (in px) before converting the target height to a percentage — both omissions clip the panel identically regardless of viewport size, confirmed directly via real Playwright measurement, not assumed",
       "description": "Resizable two-panel layout with automatic corner-squaring domain"
     }
   ],

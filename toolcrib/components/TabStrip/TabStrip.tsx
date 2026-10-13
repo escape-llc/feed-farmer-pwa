@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useRef, useEffect, type ReactNode } from 'react';
-import { Tabs as TabsPrimitive } from 'radix-ui';
+import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { aiBus } from '../../eventBus/eventBus';
 import { useAIEvent } from '../../eventBus/useAIEvent';
-import { type StyleFreeAttributes, warnIfLegacyStyleProps } from '../../theme/safeProps';
+import { type StyleFreeAttributes } from '../../theme/safeProps';
 import { useSliceOverrides } from '../../theme/useSliceOverrides';
 import { useInjectInteractionStyles } from '../../theme/interactionStyles';
 import { useScrollOverflow } from '../shared/useScrollOverflow';
@@ -95,7 +95,7 @@ export const TabStrip: React.FC<TabStripProps> & {
   // a router) — still broadcasts. A version of this that only emitted from
   // inside handleChange was reported directly: choosing a "go to tab"
   // command re-highlighted the clicked tab (the prop change alone re-renders
-  // TabsPrimitive.Root correctly) but never switched the panel, since
+  // the tabs root correctly) but never switched the panel, since
   // nothing had called handleChange to fire the broadcast. `tab:changed` is
   // a sticky event (see eventBus.ts), so a <TabStrip.Panel> that subscribes
   // after this fires still gets the current value replayed to it.
@@ -128,9 +128,9 @@ export const TabStrip: React.FC<TabStripProps> & {
   };
 
   return (
-    <TabsPrimitive.Root
+    <BaseTabs.Root
       value={activeId}
-      onValueChange={handleChange}
+      onValueChange={v => handleChange(String(v))}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -138,7 +138,7 @@ export const TabStrip: React.FC<TabStripProps> & {
         borderRadius: 'var(--ai-radius-lg, 0.5rem)',
         border: '0.0625rem solid var(--ai-border, #e5e7eb)',
         // Vertical padding only -- horizontal breathing room now lives on
-        // the scrollable <TabsPrimitive.List> below instead, so the scroll
+        // the scrollable <BaseTabs.List> below instead, so the scroll
         // buttons can sit flush against the frame's own left/right edges
         // (full height, matching the frame's own corner radius) rather
         // than floating as an inset chip inside a uniform padding box.
@@ -179,10 +179,16 @@ export const TabStrip: React.FC<TabStripProps> & {
         </button>
       )}
 
-      {/* Connected Tab List Scroll Container using Radix Tabs.List */}
-      <TabsPrimitive.List
+      {/* Connected Tab List Scroll Container. activateOnFocus: arrow keys
+          select the tab they move to (Base UI's
+          default waits for Enter/Space, #702). */}
+      <BaseTabs.List
         ref={scrollContainerRef}
+        activateOnFocus
         style={{
+          // The indicator below is absolutely positioned in the list's own
+          // scroll coordinates, so it scrolls with the tabs.
+          position: 'relative',
           display: 'flex',
           alignItems: 'center',
           gap: '0.125rem',
@@ -223,18 +229,17 @@ export const TabStrip: React.FC<TabStripProps> & {
                   }}
                 />
               )}
-              <TabsPrimitive.Trigger
+              <BaseTabs.Tab
                 value={item.id}
                 disabled={item.disabled}
                 onClick={() => !item.disabled && handleChange(item.id)}
                 className="ai-tab-trigger"
-                // Overrides Radix's own auto-generated aria-controls, which
-                // points at the id of a same-value `Tabs.Content` this
-                // component deliberately never renders -- `<TabStrip>` and
-                // `<TabStrip.Panel>` coordinate purely over the `tab:changed`
-                // event (see this file's own doc comment on `id`/`groupId`),
-                // not a shared Radix Root/Content tree, so that id never
-                // resolves to a real element (axe: aria-valid-attr-value).
+                // No aria-controls: it would point at a same-value tab panel
+                // this component deliberately never renders -- `<TabStrip>`
+                // and `<TabStrip.Panel>` coordinate purely over the
+                // `tab:changed` event (see this file's own doc comment on
+                // `id`/`groupId`), not a shared Root/Panel tree, so that id
+                // never resolves to a real element (axe: aria-valid-attr-value).
                 aria-controls={undefined}
                 style={{
                   display: 'inline-flex',
@@ -254,28 +259,60 @@ export const TabStrip: React.FC<TabStripProps> & {
                   // real overflow trigger too, not just a cosmetic wobble.
                   fontWeight: 'var(--ai-font-weight-semibold, 600)',
                   color: isActive ? 'var(--ai-tab-active-color, #ffffff)' : 'var(--ai-tab-inactive-color, var(--ai-text-primary, #111827))',
-                  background: isActive ? 'var(--ai-tab-active-bg, var(--ai-color-primary, #3b82f6))' : 'transparent',
-                  border: isActive ? 'var(--ai-tab-active-border, none)' : 'none',
+                  // The active background and border are the sliding
+                  // indicator's (#734), drawn behind every tab.
+                  background: 'transparent',
+                  border: 'none',
+                  position: 'relative',
+                  zIndex: 1,
                   borderRadius: 'var(--ai-tab-border-radius, var(--ai-radius-md, 0.375rem))',
                   cursor: item.disabled ? 'not-allowed' : 'pointer',
                   opacity: item.disabled ? 0.5 : 1,
                   whiteSpace: 'nowrap',
-                  transition: 'var(--ai-transition-fast, all 0.15s ease)',
+                  // No inline transition -- .ai-tab-trigger's own shared
+                  // rule (interactionStyles.ts) already covers
+                  // background-color and is !important, so this would be
+                  // silently discarded outright, not just redundant
+                  // (issue #411).
                   flexShrink: 0,
                   outline: 'none',
-                  // Same live color-mix hover as `.ai-btn` (see interactionStyles.ts)
-                  // — this just publishes the active/inactive background this
-                  // trigger already resolved to as the mix base.
-                  ['--ai-tab-bg' as string]: isActive ? 'var(--ai-tab-active-bg, var(--ai-color-primary, #3b82f6))' : 'transparent',
+                  // Same live color-mix hover as `.ai-btn` (see interactionStyles.ts),
+                  // mixed over transparent: on the active tab the tint sits on
+                  // top of the indicator.
+                  ['--ai-tab-bg' as string]: 'transparent',
                 }}
               >
                 {item.icon && <span>{item.icon}</span>}
                 <span>{item.label}</span>
-              </TabsPrimitive.Trigger>
+              </BaseTabs.Tab>
             </React.Fragment>
           );
         })}
-      </TabsPrimitive.List>
+        {/* One active-tab background that glides to the selected tab (#734).
+            Base UI publishes the active tab's box as --active-tab-left/-top/
+            -width/-height, in the list's scroll coordinates; the transition
+            tokens make it follow the Motion preset and reduced motion. It
+            carries every variant's active look: fill, border and radius. */}
+        <BaseTabs.Indicator
+          className="ai-tab-indicator"
+          style={{
+            position: 'absolute',
+            left: 'var(--active-tab-left)',
+            top: 'var(--active-tab-top)',
+            width: 'var(--active-tab-width)',
+            height: 'var(--active-tab-height)',
+            boxSizing: 'border-box',
+            background: 'var(--ai-tab-active-bg, var(--ai-color-primary, #3b82f6))',
+            border: 'var(--ai-tab-active-border, none)',
+            borderRadius: 'var(--ai-tab-border-radius, var(--ai-radius-md, 0.375rem))',
+            pointerEvents: 'none',
+            zIndex: 0,
+            transitionProperty: 'left, top, width, height',
+            transitionDuration: 'var(--ai-transition-duration-normal, 0.22s)',
+            transitionTimingFunction: 'var(--ai-transition-easing, ease)',
+          }}
+        />
+      </BaseTabs.List>
 
       {/* Filmstrip Right Scroll Button -- mirrors the left one: flush
           against the frame's right edge, full height, rounded only on
@@ -306,7 +343,7 @@ export const TabStrip: React.FC<TabStripProps> & {
           ▶
         </button>
       )}
-    </TabsPrimitive.Root>
+    </BaseTabs.Root>
   );
 };
 
@@ -348,6 +385,16 @@ export interface TabPanelProps extends StyleFreeAttributes<HTMLDivElement> {
   groupId: string;
   /** The tab id (matching one of that TabStrip's `items`) this panel renders for. */
   value: string;
+  /**
+   * Fill the parent's remaining height instead of sizing to the content. Turn
+   * it on when the panel is the growing region of a full-height layout (e.g.
+   * inside `<Content.Grow>`), so a `height: 100%` child such as a virtualized
+   * `<DataTable>` gets a definite height to resolve against. Off by default: in
+   * a content-sized flex column (`<VStack>`, a `<Card>` body) a filling panel
+   * has no free space and collapses to 0px.
+   * @default false
+   */
+  fill?: boolean;
   children: ReactNode;
 }
 
@@ -391,8 +438,7 @@ function injectTabPanelStyles(targetDocument?: Document, nonce?: string): void {
   );
 }
 
-export const TabPanel: React.FC<TabPanelProps> = ({ groupId, value, children, ...props }) => {
-  warnIfLegacyStyleProps(props, 'TabStrip.Panel');
+export const TabPanel: React.FC<TabPanelProps> = ({ groupId, value, fill = false, children, ...props }) => {
   const [isActive, setIsActive] = useState(false);
   const targetDocument = useTargetDocument();
   const nonce = useNonce();
@@ -409,22 +455,25 @@ export const TabPanel: React.FC<TabPanelProps> = ({ groupId, value, children, ..
   return (
     <div
       key={value}
+      role="tabpanel"
       {...props}
       className="ai-tabstrip-panel"
       style={{
         width: '100%',
-        // Participates in a surrounding flex domain (e.g. <Content.Grow>)
-        // and establishes its own for its children — without this, a
-        // height:'100%' descendant (e.g. <Card layout="auto">) resolves
-        // against a parent whose own height is content-based ('auto'),
-        // which CSS treats as no percentage basis at all, so the height
-        // never actually propagates down. flex/minHeight only take effect
-        // when the parent is itself a flex container; harmless no-ops
-        // otherwise. Found via a real browser run: a virtualized
-        // <DataTable> inside one of these panels measured 0px height and
-        // rendered no rows.
-        flex: '1 1 0px',
-        minHeight: 0,
+        // `fill` only: participates in a surrounding flex domain (e.g.
+        // <Content.Grow>) and establishes its own for its children —
+        // without this, a height:'100%' descendant (e.g.
+        // <Card layout="auto">) resolves against a parent whose own height
+        // is content-based ('auto'), which CSS treats as no percentage
+        // basis at all, so the height never actually propagates down. The
+        // zero basis makes the flexed height definite; minHeight: 0 stops
+        // a virtualized <DataTable>'s full content height from becoming the
+        // panel's minimum (found via a real browser run: it measured 0px
+        // and rendered no rows). NOT the default: in a content-sized flex
+        // column (VStack, a Card body) there's no free space to grow into,
+        // so a zero-basis item resolves to 0px and its content spills onto
+        // whatever follows (#643).
+        ...(fill ? { flex: '1 1 0px', minHeight: 0 } : {}),
         display: 'flex',
         flexDirection: 'column',
         animation: 'var(--ai-tab-panel-animation, ai-fade-in 0.22s ease)',
